@@ -46,6 +46,19 @@ def headers_for(pool: PoolName) -> list[str]:
     return CORE_HEADERS + TYPE_SPECIFIC_HEADERS[pool.audit_kind]
 
 
+def writable_headers(pool: PoolName) -> set[str]:
+    """Columns a volunteer (or the row-update layer) may write to.
+    Excludes system-managed columns (record_id, pmk_id, leg_name,
+    assigned_user, release_id, content_hash) and, for meta pools, the
+    read-only ref_* reference columns."""
+    base = {"status", "reviewer_notes"}
+    if pool.audit_kind == AuditKind.META:
+        base |= {h for h in TYPE_SPECIFIC_HEADERS[AuditKind.META] if h.startswith("corr_")}
+    else:
+        base |= set(TYPE_SPECIFIC_HEADERS[pool.audit_kind])
+    return base
+
+
 def _meta_value_cells(rec: SampledRecord) -> list[str]:
     cells = []
     for field in META_FIELDS:
