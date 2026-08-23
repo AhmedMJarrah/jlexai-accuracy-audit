@@ -146,8 +146,15 @@ def main() -> None:
     st.set_page_config(page_title="تدقيق البيانات الوصفية", layout="wide")
     apply_rtl_style()
 
-    spreadsheet = get_cached_spreadsheet()
     settings = get_settings()
+
+    st.caption(
+        f"[DEBUG] spreadsheet_id set: {bool(settings.google_spreadsheet_id)} | "
+        f"service_account_json length: {len(settings.google_service_account_json)} | "
+        f"password_hash set: {bool(settings.auth_shared_password_hash)}"
+    )
+
+    spreadsheet = get_cached_spreadsheet()
 
     if "user" not in st.session_state:
         login_screen(settings)
