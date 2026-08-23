@@ -1,0 +1,10 @@
+{
+  "users": [
+    {"username": "admin", "display_name": "Admin", "is_admin": true},
+    {"username": "v1", "display_name": "Volunteer 1", "user_slot": "user_slot_1"},
+    {"username": "v2", "display_name": "Volunteer 2", "user_slot": "user_slot_2"},
+    {"username": "v3", "display_name": "Volunteer 3", "user_slot": "user_slot_3"},
+    {"username": "v4", "display_name": "Volunteer 4", "user_slot": "user_slot_4"},
+    {"username": "v5", "display_name": "Volunteer 5", "user_slot": "user_slot_5"}
+  ]
+}

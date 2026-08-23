@@ -31,11 +31,17 @@ class Settings(BaseSettings):
     google_service_account_file: Path = Path("./secrets/service_account.json")
     google_spreadsheet_id: str = ""
 
+    # Auth (Step 6)
+    auth_shared_password_hash: str = ""
+    users_config_file: Path = Path("./config/users.json")
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "snapshots").mkdir(parents=True, exist_ok=True)
+        (self.data_dir / "batches").mkdir(parents=True, exist_ok=True)
         self.google_service_account_file.parent.mkdir(parents=True, exist_ok=True)
+        self.users_config_file.parent.mkdir(parents=True, exist_ok=True)
 
 
 def get_settings() -> Settings:
