@@ -4,6 +4,11 @@ volunteer identity management, and releasing full-population batches
 beyond the initial 100-sample. Admin-only login - same credentials
 as the volunteer portals, but is_admin must be true.
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import streamlit as st
 
 from step1_scaffold.config import get_settings
@@ -27,12 +32,6 @@ def get_cached_spreadsheet():
     settings = get_settings()
     setup_logging(settings.log_dir, settings.log_level)
     return open_spreadsheet(settings)
-
-
-@st.cache_data
-def _load_law_records(filename: str):
-    settings = get_settings()
-    return get_adapter(LegType.LAW).load(settings.data_dir / filename)
 
 
 def login_screen(settings) -> None:
@@ -111,12 +110,14 @@ def reassign_tab(spreadsheet, settings) -> None:
 def release_tab(spreadsheet, settings) -> None:
     st.subheader("توزيع باقي البيانات")
     st.caption(
-        "بعد اكتمال عينة الـ100 الأولى، استخدم هذا القسم لإطلاق دفعات إضافية "
-        "من بقية التشريعات غير المُسندة بعد."
+        "بعد اكتمال عينة الـ100 الأولى، استخدم هذا القسم لإطلاق دفعات إضافية. "
+        "ارفع ملف بيانات القوانين الحالي في كل مرة - هذا يضمن استخدام النسخة "
+        "الصحيحة من البيانات دائماً، بدل الاعتماد على ملف محفوظ قد يصبح قديماً."
     )
 
-    if not settings.active_law_filename:
-        st.error("لم يتم تحديد ACTIVE_LAW_FILENAME في ملف .env")
+    uploaded = st.file_uploader("ملف بيانات القوانين (JSON)", type="json", key="release_upload")
+    if uploaded is None:
+        st.info("ارفع ملف JSON للمتابعة.")
         return
 
     law_pools = [p.value for p in PoolName if PoolName(p.value).leg_kind == LegKind.LAW]
@@ -128,8 +129,8 @@ def release_tab(spreadsheet, settings) -> None:
 
     if st.button("إطلاق الدفعة"):
         try:
-            records = _load_law_records(settings.active_law_filename)
-            batch = create_batch(PoolName(pool), user_slot, int(count), records, settings, note)
+            records = get_adapter(LegType.LAW).load_from_text(uploaded.getvalue().decode("utf-8"))
+            batch = create_batch(PoolName(pool), user_slot, int(count), records, spreadsheet, settings, note)
         except Exception as e:
             st.error("حدث خطأ أثناء إنشاء الدفعة.")
             st.exception(e)
@@ -142,7 +143,7 @@ def release_tab(spreadsheet, settings) -> None:
         try:
             append_batch(spreadsheet, batch)
         except Exception as e:
-            st.error(f"تم حفظ الدفعة محلياً لكن فشل رفعها إلى الشيت: {e}")
+            st.error(f"فشل رفع الدفعة إلى الشيت: {e}. لم يُكتب شيء بعد - يمكنك المحاولة مجدداً بأمان.")
             st.exception(e)
             return
 

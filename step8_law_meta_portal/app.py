@@ -4,6 +4,11 @@ assigned record -> review reference values -> enter corrections ->
 save. One standalone app per audit task, per project decision - this
 app only ever touches the law_meta pool.
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import streamlit as st
 
 from step1_scaffold.config import get_settings

@@ -4,6 +4,11 @@ assigned record -> see the amendment chain as a timeline -> judge
 whether it's correct, with a note. Standalone app, touches only the
 law_chain pool.
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import json
 
 import streamlit as st
