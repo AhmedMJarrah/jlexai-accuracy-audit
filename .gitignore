@@ -1,0 +1,19 @@
+# Environment
+.env
+audit/
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Project data & logs — never committed
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Editor
+.vscode/
