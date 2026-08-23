@@ -1,16 +1,15 @@
 """
-Typed models mirroring the source JSON. Two confirmed source-data
-quirks are normalized here, not rejected:
+Typed models mirroring the source JSON. Several source-data quirks
+are normalized or accommodated here, not rejected:
 
 1. Missing values sometimes arrive as empty string "" rather than
    JSON null.
 2. Mod_Legs.Leg_Number and Mod_Legs.Replaced_For_ID are declared as
-   strings in the source schema but arrive as floats (e.g. 10.0) -
-   confirmed via diagnose.py against the real ReflectedLaws_V10.json.
-
-Neither is a claim about the legislation's own data - they're export
-formatting inconsistencies, so they're normalized silently here
-rather than surfaced to volunteers as findings.
+   strings in the source schema but arrive as floats (e.g. 10.0).
+3. Different export versions of this data have carried different
+   field sets - DetailedName and is_amendment on Mod_Legs were added
+   here after extra="forbid" correctly caught their absence rather
+   than silently dropping them.
 """
 import hashlib
 import json as _json
@@ -54,9 +53,10 @@ class ModLegArticle(BaseModel):
 
 class ModLeg(BaseModel):
     model_config = {"extra": "forbid"}
+
     Leg_Name: str
     Publication: Optional[str] = None
-    Leg_Number: Optional[str] = None
+    Leg_Number: Optional[str] = None  # String here, per source schema - see module docstring
     Year: Optional[int] = None
     Article_Count: Optional[str] = None
     Replaced_For: Optional[str] = None
@@ -77,6 +77,8 @@ class ModLeg(BaseModel):
     parent_ministry: Optional[str] = None
     type: Optional[str] = None
     Replaced_For_ID: Optional[str] = None
+    is_amendment: Optional[bool] = None
+    DetailedName: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -86,9 +88,10 @@ class ModLeg(BaseModel):
 
 class Legislation(BaseModel):
     model_config = {"extra": "forbid"}
+
     Leg_Name: str
     Publication: Optional[str] = None
-    Leg_Number: Optional[float] = None
+    Leg_Number: Optional[float] = None  # Float here, per source schema
     Year: Optional[int] = None
     Article_Count: Optional[str] = None
     Replaced_For: Optional[str] = None
@@ -101,7 +104,6 @@ class Legislation(BaseModel):
     End_Date: Optional[str] = None
     Replaced_By: Optional[str] = None
     URL: Optional[str] = None
-    DetailedName: Optional[str] = None
     Base_Articles: list[ArticleSimple] = Field(default_factory=list)
     Mod_Legs: list[ModLeg] = Field(default_factory=list)
     Status: Optional[str] = None
@@ -110,11 +112,12 @@ class Legislation(BaseModel):
     parent_ministry: Optional[str] = None
     type: Optional[str] = None
     Replaced_For_ID: Optional[str] = None
+    DetailedName: Optional[str] = None
 
     # Set post-load, not part of the source JSON.
     leg_type: Optional[LegType] = None
-    record_id: Optional[str] = None     # from pmk_id; disambiguated with #index on collision
-    content_hash: Optional[str] = None
+    record_id: Optional[str] = None     # from pmk_id, or a URL-derived ID when pmk_id is absent
+    content_hash: Optional[str] = None  # detects drift if source data changes later
 
     @model_validator(mode="before")
     @classmethod
@@ -127,6 +130,9 @@ class Legislation(BaseModel):
 
 
 def compute_content_hash(leg: "Legislation") -> str:
+    """Deterministic hash of the record's actual content, independent
+    of field order. Used to detect if a sampled record's data changed
+    since it was drawn, regardless of which identity scheme was used."""
     payload = leg.model_dump(
         mode="json", exclude={"record_id", "content_hash", "leg_type"}
     )
