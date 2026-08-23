@@ -15,5 +15,9 @@ data/*
 logs/*
 !logs/.gitkeep
 
+# Secrets — never committed
+secrets/*
+!secrets/.gitkeep
+
 # Editor
 .vscode/

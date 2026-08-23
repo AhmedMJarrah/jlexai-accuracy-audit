@@ -27,10 +27,15 @@ class Settings(BaseSettings):
     num_users: int = 5
     random_seed: int = 42
 
+    # Google Sheets (Step 4)
+    google_service_account_file: Path = Path("./secrets/service_account.json")
+    google_spreadsheet_id: str = ""
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "snapshots").mkdir(parents=True, exist_ok=True)
+        self.google_service_account_file.parent.mkdir(parents=True, exist_ok=True)
 
 
 def get_settings() -> Settings:

@@ -1,3 +1,6 @@
 pydantic-settings>=2.4
 python-dotenv>=1.0
 pytest>=8.0
+
+gspread>=6.1
+google-auth>=2.30

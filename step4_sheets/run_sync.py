@@ -1,0 +1,43 @@
+"""
+CLI entry point: loads a saved sampling round snapshot and pushes it
+into the Google Sheet. Defaults to the most recently created snapshot
+if --round-file is omitted.
+"""
+import argparse
+from pathlib import Path
+
+from step1_scaffold.config import get_settings
+from step1_scaffold.logging_setup import setup_logging, get_logger
+from step3_sampling.snapshot import load_round
+from step4_sheets.client import open_spreadsheet
+from step4_sheets.sync import push_round
+
+logger = get_logger("run_sync")
+
+
+def _latest_snapshot(snapshots_dir: Path) -> Path:
+    files = sorted(snapshots_dir.glob("round_*.json"))
+    if not files:
+        raise FileNotFoundError(f"No snapshot files found in {snapshots_dir}")
+    return files[-1]
+
+
+def run(round_file: str | None, force: bool) -> None:
+    settings = get_settings()
+    setup_logging(settings.log_dir, settings.log_level)
+
+    path = Path(round_file) if round_file else _latest_snapshot(settings.data_dir / "snapshots")
+    logger.info(f"Loading round from {path}")
+    round_ = load_round(path)
+
+    spreadsheet = open_spreadsheet(settings)
+    push_round(spreadsheet, round_, force=force)
+    print(f"\nSynced round '{round_.round_id}' to spreadsheet '{spreadsheet.title}'.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--round-file", default=None, help="Path to a snapshot json; defaults to the latest")
+    parser.add_argument("--force", action="store_true", help="Clear and rewrite tabs that already have data")
+    args = parser.parse_args()
+    run(args.round_file, args.force)
