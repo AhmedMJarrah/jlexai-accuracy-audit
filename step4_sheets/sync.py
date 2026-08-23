@@ -1,16 +1,22 @@
 """
-Pushes a SamplingRound into the spreadsheet: one tab per pool, header
-row + one row per sampled record with its assignment. Idempotent by
-default - refuses to push into a tab that already has data rows,
-unless force clears it first. Also sets each tab to right-to-left,
-since the record data (names, notes) is Arabic even though headers
-are English identifiers.
+Pushes data into the spreadsheet. Two entry points:
+
+- push_round: initial 100-sample - clears and rewrites a tab's full
+  body. Idempotent by default (refuses to touch a tab that already
+  has data, unless force=True).
+- append_batch: full-population release batches - appends rows to
+  an EXISTING tab without touching what's already there. Requires
+  push_round to have run first (the tab and header must exist).
+
+Both tabs get rightToLeft set, since record data (names, notes) is
+Arabic even though headers are English identifiers.
 """
 import gspread
 
 from step1_scaffold.logging_setup import get_logger
 from step3_sampling.models import PoolName, SamplingRound
-from step4_sheets.schema import DEFAULT_STATUS, headers_for
+from step4_sheets.schema import headers_for, row_values
+from step5_release.models import ReleaseBatch
 
 logger = get_logger("sheets_sync")
 
@@ -19,7 +25,7 @@ def _ensure_tab(spreadsheet: gspread.Spreadsheet, pool: PoolName, rows_needed: i
     try:
         ws = spreadsheet.worksheet(pool.value)
     except gspread.exceptions.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet(title=pool.value, rows=rows_needed + 10, cols=20)
+        ws = spreadsheet.add_worksheet(title=pool.value, rows=rows_needed + 10, cols=40)
         logger.info(f"Created tab: {pool.value}")
 
     spreadsheet.batch_update({
@@ -52,28 +58,31 @@ def push_round(spreadsheet: gspread.Spreadsheet, round_: SamplingRound, force: b
             )
             continue
 
-        # invert assignments: record_id -> user_slot
         record_to_slot = {
             rid: slot for slot, rids in pool_sample.assignments.items() for rid in rids
         }
 
         rows = [headers]
         for rec in pool_sample.records:
-            row = [
-                rec.record_id,
-                rec.pmk_id or "",
-                rec.leg_name,
-                record_to_slot.get(rec.record_id, ""),
-                DEFAULT_STATUS,
-                "",  # reviewer_notes
-                "",  # last_updated
-                round_.round_id,
-                rec.content_hash,
-            ]
-            row += [""] * (len(headers) - len(row))
-            rows.append(row)
+            rows.append(row_values(pool, rec, record_to_slot.get(rec.record_id, ""), round_.round_id))
 
         ws.clear()
         ws.update(values=rows, range_name="A1")
         ws.freeze(rows=1)
         logger.info(f"{pool.value}: wrote {len(rows) - 1} row(s) for round {round_.round_id}")
+
+
+def append_batch(spreadsheet: gspread.Spreadsheet, batch: ReleaseBatch) -> None:
+    pool = batch.pool
+
+    try:
+        ws = spreadsheet.worksheet(pool.value)
+    except gspread.exceptions.WorksheetNotFound:
+        raise RuntimeError(
+            f"Tab '{pool.value}' doesn't exist yet - run the initial "
+            f"push_round for this pool before releasing full-population batches."
+        )
+
+    rows = [row_values(pool, rec, batch.user_slot, batch.batch_id) for rec in batch.records]
+    ws.append_rows(rows, value_input_option="RAW")
+    logger.info(f"{pool.value}: appended {len(rows)} row(s) from {batch.batch_id} for {batch.user_slot}")

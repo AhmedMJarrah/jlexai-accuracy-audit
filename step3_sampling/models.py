@@ -38,14 +38,37 @@ class PoolName(str, Enum):
         return AuditKind(self.value.split("_", 1)[1])
 
 
+# Phase 1 metadata fields confirmed for the meta audit. entity,
+# parent_ministry, Publication, URL, DetailedName, Leg_Name,
+# Article_Count, type deliberately deferred to a later phase.
+META_FIELDS: list[str] = [
+    "Leg_Number",
+    "Year",
+    "Status",
+    "Magazine_Number",
+    "Magazine_Page",
+    "Magazine_Date",
+    "Issue_Date",
+    "Active_Date",
+    "End_Date",
+    "Replaced_By",
+    "Replaced_For",
+    "Canceled_By",
+]
+
+
 class SampledRecord(BaseModel):
     """Minimal frozen reference - enough to detect later drift via
     content_hash, without duplicating the full legislation payload
-    into the snapshot."""
+    into the snapshot. meta_fields carries a frozen snapshot of the
+    Phase 1 metadata field values, populated only for META pools -
+    the value shown to volunteers is always "as sampled", even if
+    the source file changes later."""
     record_id: str
     pmk_id: Optional[int] = None
     leg_name: str
     content_hash: str
+    meta_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class PoolSample(BaseModel):

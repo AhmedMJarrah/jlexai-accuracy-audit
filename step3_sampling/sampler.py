@@ -9,13 +9,28 @@ import random
 
 from step1_scaffold.logging_setup import get_logger
 from step2_ingestion.models import Legislation
-from step3_sampling.models import AuditKind, PoolName, SampledRecord
+from step3_sampling.models import META_FIELDS, AuditKind, PoolName, SampledRecord
 
 logger = get_logger("sampler")
 
 
 def _pool_seed(base_seed: int, pool: PoolName) -> int:
     return base_seed + int(hashlib.sha256(pool.value.encode()).hexdigest(), 16) % 100_000
+
+
+def extract_meta_fields(leg: Legislation) -> dict[str, str]:
+    """Frozen snapshot of the Phase 1 metadata field values, as they
+    stood when sampled - never re-read live later."""
+    values: dict[str, str] = {}
+    for field in META_FIELDS:
+        v = getattr(leg, field, None)
+        if v is None:
+            values[field] = ""
+        elif isinstance(v, float) and v.is_integer():
+            values[field] = str(int(v))
+        else:
+            values[field] = str(v)
+    return values
 
 
 def build_population(records: list[Legislation], pool: PoolName) -> list[Legislation]:
@@ -29,6 +44,16 @@ def build_population(records: list[Legislation], pool: PoolName) -> list[Legisla
     return same_kind
 
 
+def to_sampled_record(leg: Legislation, pool: PoolName) -> SampledRecord:
+    return SampledRecord(
+        record_id=leg.record_id,
+        pmk_id=leg.pmk_id,
+        leg_name=leg.Leg_Name,
+        content_hash=leg.content_hash,
+        meta_fields=extract_meta_fields(leg) if pool.audit_kind == AuditKind.META else {},
+    )
+
+
 def draw_sample(population: list[Legislation], sample_size: int, pool: PoolName, base_seed: int) -> list[SampledRecord]:
     if not population:
         logger.warning(f"{pool.value}: empty population, nothing to sample")
@@ -40,7 +65,4 @@ def draw_sample(population: list[Legislation], sample_size: int, pool: PoolName,
         logger.warning(f"{pool.value}: population only {len(population)}, sampling all of it (< requested {sample_size})")
 
     chosen = rng.sample(population, n)
-    return [
-        SampledRecord(record_id=r.record_id, pmk_id=r.pmk_id, leg_name=r.Leg_Name, content_hash=r.content_hash)
-        for r in chosen
-    ]
+    return [to_sampled_record(r, pool) for r in chosen]
