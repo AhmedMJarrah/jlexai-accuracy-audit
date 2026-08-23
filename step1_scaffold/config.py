@@ -22,15 +22,18 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     log_dir: Path = Path("./logs")
 
+    # Sampling (Step 3)
+    sample_size: int = 100
+    num_users: int = 5
+    random_seed: int = 42
+
     def ensure_dirs(self) -> None:
-        """Create data/log dirs if missing. Called once at startup."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        (self.data_dir / "snapshots").mkdir(parents=True, exist_ok=True)
 
 
 def get_settings() -> Settings:
-    """Single entry point — import this everywhere, don't instantiate
-    Settings() directly in other modules."""
     settings = Settings()
     settings.ensure_dirs()
     return settings
