@@ -18,19 +18,42 @@ def _pool_seed(base_seed: int, pool: PoolName) -> int:
     return base_seed + int(hashlib.sha256(pool.value.encode()).hexdigest(), 16) % 100_000
 
 
+def _fmt(v) -> str:
+    """Shared value formatter: None -> "", integer-valued floats
+    (e.g. 1449.0) -> "1449" instead of an ugly trailing .0."""
+    if v is None:
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
 def extract_meta_fields(leg: Legislation) -> dict[str, str]:
     """Frozen snapshot of the Phase 1 metadata field values, as they
     stood when sampled - never re-read live later."""
-    values: dict[str, str] = {}
-    for field in META_FIELDS:
-        v = getattr(leg, field, None)
-        if v is None:
-            values[field] = ""
-        elif isinstance(v, float) and v.is_integer():
-            values[field] = str(int(v))
-        else:
-            values[field] = str(v)
-    return values
+    return {field: _fmt(getattr(leg, field, None)) for field in META_FIELDS}
+
+
+def extract_chain_data(leg: Legislation) -> list[dict[str, str]]:
+    """Frozen snapshot of the amendment chain: base law first, then
+    each Mod_Leg in order (already oldest-to-newest per the source
+    data)."""
+    chain = [{
+        "kind": "base",
+        "leg_name": leg.Leg_Name,
+        "leg_number": _fmt(leg.Leg_Number),
+        "year": _fmt(leg.Year),
+        "status": leg.Status or "",
+    }]
+    for mod in leg.Mod_Legs:
+        chain.append({
+            "kind": "amendment",
+            "leg_name": mod.Leg_Name,
+            "leg_number": mod.Leg_Number or "",
+            "year": _fmt(mod.Year),
+            "status": mod.Status or "",
+        })
+    return chain
 
 
 def build_population(records: list[Legislation], pool: PoolName) -> list[Legislation]:
@@ -51,6 +74,7 @@ def to_sampled_record(leg: Legislation, pool: PoolName) -> SampledRecord:
         leg_name=leg.Leg_Name,
         content_hash=leg.content_hash,
         meta_fields=extract_meta_fields(leg) if pool.audit_kind == AuditKind.META else {},
+        chain_data=extract_chain_data(leg) if pool.audit_kind == AuditKind.CHAIN else [],
     )
 
 

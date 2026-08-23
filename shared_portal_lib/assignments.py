@@ -1,10 +1,13 @@
 """
 Assignment queries for a logged-in volunteer: everything currently
-assigned to their user_slot in a given pool, with status, so the
+assigned to their user_slot in a given pool, with status, so a
 portal can show a worklist and a simple progress count. Reads raw
 values and zips against headers_for(pool) manually - deliberately
 not gspread's get_all_records(), which chokes on the sheet's extra
 blank trailing columns and auto-coerces numeric-looking strings.
+
+Pool-agnostic - shared across all portals, not specific to any one
+audit type.
 """
 import gspread
 

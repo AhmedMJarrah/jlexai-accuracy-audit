@@ -1,22 +1,24 @@
 """
-Volunteer portal for the law_meta audit pool. Login -> pick an
-assigned record -> review reference values -> enter corrections ->
-save. One standalone app per audit task, per project decision - this
-app only ever touches the law_meta pool.
+Volunteer portal for the law_chain audit pool. Login -> pick an
+assigned record -> see the amendment chain as a timeline -> judge
+whether it's correct, with a note. Standalone app, touches only the
+law_chain pool.
 """
+import json
+
 import streamlit as st
 
 from step1_scaffold.config import get_settings
 from step1_scaffold.logging_setup import setup_logging
-from step3_sampling.models import META_FIELDS, PoolName
+from step3_sampling.models import PoolName
 from step4_sheets.client import open_spreadsheet
 from step6_auth.authenticate import authenticate
 from step7_updates.row_update import update_row
+from step10_law_chain_portal.style import apply_chain_style
 from shared_portal_lib.assignments import list_assigned, progress_summary
 from shared_portal_lib.export import to_csv_bytes
-from shared_portal_lib.style import apply_rtl_style
 
-POOL = PoolName.LAW_META
+POOL = PoolName.LAW_CHAIN
 STATUS_OPTIONS = ["not_started", "in_progress", "done", "flagged"]
 STATUS_LABELS = {
     "not_started": "لم يبدأ",
@@ -24,20 +26,8 @@ STATUS_LABELS = {
     "done": "منتهي",
     "flagged": "بحاجة لمراجعة إضافية",
 }
-FIELD_LABELS = {
-    "Leg_Number": "رقم التشريع",
-    "Year": "السنة",
-    "Status": "الحالة القانونية",
-    "Magazine_Number": "رقم الجريدة الرسمية",
-    "Magazine_Page": "الصفحة",
-    "Magazine_Date": "تاريخ الجريدة الرسمية",
-    "Issue_Date": "تاريخ الإصدار",
-    "Active_Date": "تاريخ النفاذ",
-    "End_Date": "تاريخ الانتهاء",
-    "Replaced_By": "استُبدل بـ",
-    "Replaced_For": "استُبدل عن",
-    "Canceled_By": "أُلغي بموجب",
-}
+CHAIN_CHOICES = ["correct", "incorrect"]
+CHAIN_LABELS = {"correct": "السلسلة صحيحة", "incorrect": "السلسلة غير صحيحة"}
 
 
 @st.cache_resource
@@ -49,7 +39,7 @@ def get_cached_spreadsheet():
 
 def login_screen(settings) -> None:
     st.markdown(
-        "<h1 style='text-align:center;'>تدقيق البيانات الوصفية للتشريعات</h1>",
+        "<h1 style='text-align:center;'>تدقيق سلاسل التعديلات</h1>",
         unsafe_allow_html=True,
     )
     with st.form("login_form"):
@@ -96,39 +86,86 @@ def record_picker(assigned: list[dict]) -> dict | None:
     return options[choice]
 
 
+def _status_pill(status: str) -> str:
+    if not status:
+        return ""
+    if "غير" in status:
+        cls = "chain-pill-inactive"
+    elif status.strip() == "ساري":
+        cls = "chain-pill-active"
+    else:
+        cls = "chain-pill-neutral"
+    return f'<span class="chain-pill {cls}">{status}</span>'
+
+
+def render_timeline(chain_data: list[dict]) -> None:
+    if not chain_data:
+        st.info("لا توجد بيانات سلسلة لعرضها.")
+        return
+
+    html = ['<div class="chain-timeline">']
+    amendment_num = 0
+    for item in chain_data:
+        is_base = item.get("kind") == "base"
+        if is_base:
+            badge = "التشريع الأساسي"
+            data_num = "★"
+        else:
+            amendment_num += 1
+            badge = f"تعديل رقم {amendment_num}"
+            data_num = str(amendment_num)
+
+        year = item.get("year") or "—"
+        pill = _status_pill(item.get("status", ""))
+
+        html.append(
+            f'<div class="chain-node {"chain-base" if is_base else ""}" data-num="{data_num}">'
+            f'<div class="chain-badge">{badge}</div>'
+            f'<div class="chain-name">{item.get("leg_name", "")}</div>'
+            f'<div class="chain-meta">السنة: {year}{pill}</div>'
+            f'</div>'
+        )
+    html.append('</div>')
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
 def review_form(spreadsheet, record: dict) -> None:
     st.subheader(record["leg_name"])
     st.caption(f"رقم السجل: {record['record_id']}")
 
-    header_l, header_r, header_c = st.columns([2, 3, 3])
-    header_l.markdown("**الحقل**")
-    header_r.markdown("**القيمة الحالية**")
-    header_c.markdown("**التصحيح (اتركه فارغاً إذا كانت القيمة صحيحة)**")
+    try:
+        chain_data = json.loads(record.get("chain_data_json") or "[]")
+    except json.JSONDecodeError:
+        chain_data = []
+        st.error("تعذّرت قراءة بيانات السلسلة لهذا السجل.")
 
-    corrections: dict[str, str] = {}
-    for field in META_FIELDS:
-        ref_val = record.get(f"ref_{field}", "")
-        existing_corr = record.get(f"corr_{field}", "")
-        label = FIELD_LABELS.get(field, field)
+    render_timeline(chain_data)
 
-        col_l, col_r, col_c = st.columns([2, 3, 3])
-        col_l.markdown(label)
-        col_r.text_input("ref", value=ref_val, disabled=True, key=f"ref_{field}", label_visibility="collapsed")
-        corrections[f"corr_{field}"] = col_c.text_input(
-            "corr", value=existing_corr, key=f"corr_{field}", label_visibility="collapsed"
-        )
-
+    existing_choice = record.get("chain_correct") or None
+    chain_correct = st.radio(
+        "هل هذه السلسلة صحيحة؟",
+        CHAIN_CHOICES,
+        index=CHAIN_CHOICES.index(existing_choice) if existing_choice in CHAIN_CHOICES else None,
+        format_func=lambda v: CHAIN_LABELS[v],
+        horizontal=True,
+    )
+    notes = st.text_area(
+        "ملاحظات (اذكر مكان الخلل إن وجد)",
+        value=record.get("reviewer_notes", ""),
+    )
     status = st.selectbox(
         "حالة المراجعة",
         STATUS_OPTIONS,
         index=STATUS_OPTIONS.index(record.get("status") or "not_started"),
         format_func=lambda s: STATUS_LABELS[s],
     )
-    notes = st.text_area("ملاحظات", value=record.get("reviewer_notes", ""))
 
     if st.button("حفظ", type="primary"):
+        field_updates = {}
+        if chain_correct is not None:
+            field_updates["chain_correct"] = chain_correct
         try:
-            update_row(spreadsheet, POOL, record["record_id"], corrections, status=status, notes=notes)
+            update_row(spreadsheet, POOL, record["record_id"], field_updates, status=status, notes=notes)
         except Exception as e:
             st.error("حدث خطأ أثناء الحفظ. حاول مرة أخرى.")
             st.exception(e)
@@ -138,8 +175,8 @@ def review_form(spreadsheet, record: dict) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="تدقيق البيانات الوصفية", layout="wide")
-    apply_rtl_style()
+    st.set_page_config(page_title="تدقيق سلاسل التعديلات", layout="wide")
+    apply_chain_style()
 
     spreadsheet = get_cached_spreadsheet()
     settings = get_settings()
@@ -159,7 +196,7 @@ def main() -> None:
         st.sidebar.download_button(
             "تنزيل نسخة CSV من عملي",
             data=to_csv_bytes(assigned),
-            file_name=f"law_meta_{user.user_slot}.csv",
+            file_name=f"law_chain_{user.user_slot}.csv",
             mime="text/csv",
         )
 

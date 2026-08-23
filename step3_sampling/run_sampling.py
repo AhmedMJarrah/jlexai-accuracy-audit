@@ -79,7 +79,14 @@ def run(law_filename: str, round_id: str | None = None) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--law-filename", required=True)
+    parser.add_argument("--law-filename", default=None,
+                         help="Filename inside data/; defaults to ACTIVE_LAW_FILENAME in .env")
     parser.add_argument("--round-id", default=None)
     args = parser.parse_args()
-    run(args.law_filename, args.round_id)
+
+    settings = get_settings()
+    filename = args.law_filename or settings.active_law_filename
+    if not filename:
+        raise SystemExit("No --law-filename given and ACTIVE_LAW_FILENAME is not set in .env")
+
+    run(filename, args.round_id)

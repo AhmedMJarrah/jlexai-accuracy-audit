@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     auth_shared_password_hash: str = ""
     users_config_file: Path = Path("./config/users.json")
 
+    # Active data file - avoids retyping the filename on every command;
+    # still overridable per-command via --law-filename where offered.
+    active_law_filename: str = ""
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)

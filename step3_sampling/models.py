@@ -60,15 +60,22 @@ META_FIELDS: list[str] = [
 class SampledRecord(BaseModel):
     """Minimal frozen reference - enough to detect later drift via
     content_hash, without duplicating the full legislation payload
-    into the snapshot. meta_fields carries a frozen snapshot of the
-    Phase 1 metadata field values, populated only for META pools -
-    the value shown to volunteers is always "as sampled", even if
-    the source file changes later."""
+    into the snapshot.
+
+    meta_fields: frozen Phase 1 metadata values, populated only for
+    META pools - the value shown to volunteers is always "as
+    sampled", even if the source file changes later.
+
+    chain_data: frozen amendment sequence, populated only for CHAIN
+    pools - a list of {kind, leg_name, leg_number, year, status}
+    dicts, element 0 always the base law itself (kind="base"),
+    followed by each Mod_Leg in order (kind="amendment")."""
     record_id: str
     pmk_id: Optional[int] = None
     leg_name: str
     content_hash: str
     meta_fields: dict[str, str] = Field(default_factory=dict)
+    chain_data: list[dict[str, str]] = Field(default_factory=list)
 
 
 class PoolSample(BaseModel):

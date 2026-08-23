@@ -1,7 +1,8 @@
 """
 CLI entry point: loads a saved sampling round snapshot and pushes it
 into the Google Sheet. Defaults to the most recently created snapshot
-if --round-file is omitted.
+if --round-file is omitted. --pool (repeatable) scopes the push to
+specific pool(s) - default is every pool in the round.
 """
 import argparse
 from pathlib import Path
@@ -22,7 +23,7 @@ def _latest_snapshot(snapshots_dir: Path) -> Path:
     return files[-1]
 
 
-def run(round_file: str | None, force: bool) -> None:
+def run(round_file: str | None, force: bool, pools: list[str] | None) -> None:
     settings = get_settings()
     setup_logging(settings.log_dir, settings.log_level)
 
@@ -31,7 +32,8 @@ def run(round_file: str | None, force: bool) -> None:
     round_ = load_round(path)
 
     spreadsheet = open_spreadsheet(settings)
-    push_round(spreadsheet, round_, force=force)
+    only_pools = set(pools) if pools else None
+    push_round(spreadsheet, round_, force=force, only_pools=only_pools)
     print(f"\nSynced round '{round_.round_id}' to spreadsheet '{spreadsheet.title}'.")
 
 
@@ -39,5 +41,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--round-file", default=None, help="Path to a snapshot json; defaults to the latest")
     parser.add_argument("--force", action="store_true", help="Clear and rewrite tabs that already have data")
+    parser.add_argument("--pool", dest="pools", action="append",
+                         help="Limit to specific pool(s), repeatable. Default: all pools in the round.")
     args = parser.parse_args()
-    run(args.round_file, args.force)
+    run(args.round_file, args.force, args.pools)

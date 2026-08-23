@@ -1,6 +1,6 @@
 """
-RTL layout + Arabic typography for the Streamlit portal. Colors and
-base theme come from .streamlit/config.toml (Streamlit's native
+RTL layout + Arabic typography, shared across every portal. Colors
+and base theme come from .streamlit/config.toml (Streamlit's native
 theming), not CSS overrides - CSS here only handles what the theme
 system can't: text direction, alignment, font import, and sizing.
 """

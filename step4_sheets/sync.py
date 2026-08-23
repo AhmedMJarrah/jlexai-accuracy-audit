@@ -3,10 +3,11 @@ Pushes data into the spreadsheet. Two entry points:
 
 - push_round: initial 100-sample - clears and rewrites a tab's full
   body. Idempotent by default (refuses to touch a tab that already
-  has data, unless force=True).
+  has data, unless force=True). only_pools optionally scopes a push
+  to specific pool(s), so a schema change in one pool doesn't force
+  rewriting tabs that didn't change.
 - append_batch: full-population release batches - appends rows to
-  an EXISTING tab without touching what's already there. Requires
-  push_round to have run first (the tab and header must exist).
+  an EXISTING tab without touching what's already there.
 
 Both tabs get rightToLeft set, since record data (names, notes) is
 Arabic even though headers are English identifiers.
@@ -44,8 +45,12 @@ def _existing_data_row_count(ws: gspread.Worksheet) -> int:
     return max(0, len(values) - 1)  # minus header row, if any
 
 
-def push_round(spreadsheet: gspread.Spreadsheet, round_: SamplingRound, force: bool = False) -> None:
+def push_round(spreadsheet: gspread.Spreadsheet, round_: SamplingRound, force: bool = False,
+                only_pools: set[str] | None = None) -> None:
     for pool_key, pool_sample in round_.pools.items():
+        if only_pools is not None and pool_key not in only_pools:
+            continue
+
         pool = PoolName(pool_key)
         headers = headers_for(pool)
         ws = _ensure_tab(spreadsheet, pool, len(pool_sample.records))
