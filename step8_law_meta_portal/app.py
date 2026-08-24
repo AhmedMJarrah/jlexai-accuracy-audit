@@ -124,12 +124,19 @@ def review_form(spreadsheet, record: dict) -> bool:
 
         col_l, col_r, col_c = st.columns([2, 3, 3])
         col_l.markdown(label)
-        col_r.text_input("ref", value=ref_val, disabled=True, key=f"ref_{field}", label_visibility="collapsed")
+        col_r.text_input(
+            "ref", value=ref_val, disabled=True,
+            key=f"ref_{field}_{record['record_id']}", label_visibility="collapsed",
+        )
         corrections[f"corr_{field}"] = col_c.text_input(
-            "corr", value=existing_corr, key=f"corr_{field}", label_visibility="collapsed"
+            "corr", value=existing_corr,
+            key=f"corr_{field}_{record['record_id']}", label_visibility="collapsed",
         )
 
-    notes = st.text_area("ملاحظات", value=record.get("reviewer_notes", ""))
+    notes = st.text_area(
+        "ملاحظات", value=record.get("reviewer_notes", ""),
+        key=f"notes_{record['record_id']}",
+    )
 
     if st.button("حفظ", type="primary"):
         has_correction = any(v.strip() for v in corrections.values())

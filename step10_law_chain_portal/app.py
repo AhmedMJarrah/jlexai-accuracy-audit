@@ -160,6 +160,7 @@ def review_form(spreadsheet, record: dict) -> bool:
         index=CHAIN_CHOICES.index(existing_choice) if existing_choice in CHAIN_CHOICES else None,
         format_func=lambda v: CHAIN_LABELS[v],
         horizontal=True,
+        key=f"chain_correct_{record['record_id']}",
     )
     if st.button("حفظ", type="primary"):
         if chain_correct is None:
