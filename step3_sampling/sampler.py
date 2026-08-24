@@ -15,7 +15,7 @@ logger = get_logger("sampler")
 
 # Google Sheets hard-caps a single cell at 50,000 characters. Stay
 # safely under that with margin for JSON structural overhead.
-_MAX_REFLECT_CELL_CHARS = 45_000
+_MAX_REFLECT_CELL_CHARS = 42_000  # extra margin below Sheets' 50,000 hard limit
 
 
 def _pool_seed(base_seed: int, pool: PoolName) -> int:
@@ -67,10 +67,15 @@ def _flatten_articles(articles) -> str:
 
 
 def _truncate(text: str, max_len: int) -> str:
+    """The marker itself takes up space - the returned string
+    (content + marker together) must never exceed max_len, or the
+    budget calculation upstream silently loses its guarantee."""
     if len(text) <= max_len:
         return text
     original_len = len(text)
-    return text[:max_len] + f" …[تم اقتصاص النص، الطول الأصلي {original_len} حرف]"
+    marker = f" …[تم اقتصاص النص، الطول الأصلي {original_len} حرف]"
+    content_budget = max(0, max_len - len(marker))
+    return text[:content_budget] + marker
 
 
 def extract_reflect_data(leg: Legislation) -> list[dict[str, str]]:
