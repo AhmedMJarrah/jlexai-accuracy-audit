@@ -75,23 +75,39 @@ def _truncate(text: str, max_len: int) -> str:
 
 def extract_reflect_data(leg: Legislation) -> list[dict]:
     """Frozen snapshot of each amendment's instruction articles
-    alongside the resulting consolidated articles - kept structured
-    per-article (not flattened into one blob), so the portal can
-    render each article as its own readable card instead of a wall
-    of text. Text is truncated per-article, with the budget split
-    across however many articles this law's amendments carry in
-    total, to stay within a single Sheets cell."""
+    alongside the SPECIFIC reflected articles it actually touched.
+
+    Reflected_Articles is a snapshot of the law's ENTIRE consolidated
+    text at that point in the chain, not just what this amendment
+    changed - including it in full would mean re-showing the whole
+    law at every amendment, both far too large for a single Sheets
+    cell and useless for review. Instead, match on article_number:
+    only the reflected articles whose number appears in this
+    amendment's own instruction articles are included - the actual
+    before/after pair a reviewer needs to see.
+
+    Kept structured per-article (not flattened into one blob) so the
+    portal can render each article as its own readable card. Text is
+    still truncated per-article as a safety net, but after this fix
+    the included set should be small enough that truncation rarely
+    triggers in practice."""
     mods = leg.Mod_Legs
     if not mods:
         return []
 
-    total_articles = sum(len(m.Base_Articles) + len(m.Reflected_Articles) for m in mods) or 1
+    per_amendment = []
+    for mod in mods:
+        touched_numbers = {a.article_number for a in mod.Base_Articles}
+        matching_reflected = [a for a in mod.Reflected_Articles if a.article_number in touched_numbers]
+        per_amendment.append((mod, matching_reflected))
+
+    total_articles = sum(len(mod.Base_Articles) + len(matched) for mod, matched in per_amendment) or 1
     overhead_estimate = 120  # per article entry - keys, quotes, commas
     usable = _MAX_REFLECT_CELL_CHARS - (total_articles * overhead_estimate) - (len(mods) * 80)
-    per_article_budget = max(400, usable // total_articles)
+    per_article_budget = max(400, usable // total_articles) if usable > 0 else 400
 
     items = []
-    for mod in mods:
+    for mod, matching_reflected in per_amendment:
         items.append({
             "amendment_name": mod.Leg_Name,
             "amendment_year": _fmt(mod.Year),
@@ -109,7 +125,7 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
                     "title": a.title,
                     "text": _truncate(a.text, per_article_budget),
                 }
-                for a in mod.Reflected_Articles
+                for a in matching_reflected
             ],
         })
 
