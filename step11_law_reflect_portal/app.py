@@ -138,9 +138,16 @@ def render_reflections(mod_legs: list[dict]) -> None:
         st.info("لا توجد تعديلات لعرضها.")
         return
 
-    for i, item in enumerate(mod_legs, start=1):
-        title = f"🗂️ تعديل {i}: {item.get('amendment_name', '')} ({item.get('amendment_year') or '—'})"
-        with st.expander(title, expanded=(i == 1)):
+    amendment_num = 0
+    for item in mod_legs:
+        name = item.get("amendment_name", "")
+        if name.startswith("⚠️"):
+            st.warning(name)
+            continue
+
+        amendment_num += 1
+        title = f"🗂️ تعديل {amendment_num}: {name} ({item.get('amendment_year') or '—'})"
+        with st.expander(title, expanded=(amendment_num == 1)):
             render_amendment(item)
 
 

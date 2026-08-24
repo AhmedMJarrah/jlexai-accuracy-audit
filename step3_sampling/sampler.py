@@ -73,6 +73,32 @@ def _truncate(text: str, max_len: int) -> str:
     return text[:content_budget] + marker
 
 
+_PER_ARTICLE_TEXT_BUDGET = 1500  # generous - several real paragraphs per article
+
+
+def _build_reflect_entry(mod, matching_reflected) -> dict:
+    return {
+        "amendment_name": mod.Leg_Name,
+        "amendment_year": _fmt(mod.Year),
+        "instruction_articles": [
+            {
+                "number": a.article_number,
+                "title": a.title,
+                "text": _truncate(a.text, _PER_ARTICLE_TEXT_BUDGET),
+            }
+            for a in mod.Base_Articles
+        ],
+        "reflected_articles": [
+            {
+                "number": a.article_number,
+                "title": a.title,
+                "text": _truncate(a.text, _PER_ARTICLE_TEXT_BUDGET),
+            }
+            for a in matching_reflected
+        ],
+    }
+
+
 def extract_reflect_data(leg: Legislation) -> list[dict]:
     """Frozen snapshot of each amendment's instruction articles
     alongside the SPECIFIC reflected articles it actually touched.
@@ -80,60 +106,52 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
     Reflected_Articles is a snapshot of the law's ENTIRE consolidated
     text at that point in the chain, not just what this amendment
     changed - including it in full would mean re-showing the whole
-    law at every amendment, both far too large for a single Sheets
-    cell and useless for review. Instead, match on article_number:
-    only the reflected articles whose number appears in this
-    amendment's own instruction articles are included - the actual
-    before/after pair a reviewer needs to see.
+    law at every amendment. Instead, match on article_number: only
+    the reflected articles whose number appears in this amendment's
+    own instruction articles are included - the actual before/after
+    pair a reviewer needs.
 
-    Kept structured per-article (not flattened into one blob) so the
-    portal can render each article as its own readable card. Text is
-    still truncated per-article as a safety net, but after this fix
-    the included set should be small enough that truncation rarely
-    triggers in practice."""
+    Every included article gets a fixed, comfortable text budget
+    (not squeezed thinner as amendment count grows). Amendments are
+    added one at a time, checking the real running size before each
+    addition - the moment one more would exceed the Sheets cell
+    limit, building stops and a note records how many were left out.
+    This is a hard guarantee, not an estimate: the result can never
+    exceed the cap, and nothing is ever silently mangled into an
+    unreadable fragment to make room for more."""
     mods = leg.Mod_Legs
     if not mods:
         return []
 
-    per_amendment = []
-    for mod in mods:
+    items: list[dict] = []
+    running_size = 200  # rough allowance for the outer JSON array brackets/commas
+
+    for i, mod in enumerate(mods):
         touched_numbers = {a.article_number for a in mod.Base_Articles}
         matching_reflected = [a for a in mod.Reflected_Articles if a.article_number in touched_numbers]
-        per_amendment.append((mod, matching_reflected))
 
-    total_articles = sum(len(mod.Base_Articles) + len(matched) for mod, matched in per_amendment) or 1
-    overhead_estimate = 120  # per article entry - keys, quotes, commas
-    usable = _MAX_REFLECT_CELL_CHARS - (total_articles * overhead_estimate) - (len(mods) * 80)
-    per_article_budget = max(400, usable // total_articles) if usable > 0 else 400
+        entry = _build_reflect_entry(mod, matching_reflected)
+        entry_size = len(_json.dumps(entry, ensure_ascii=False)) + 1  # +1 for the joining comma
 
-    items = []
-    for mod, matching_reflected in per_amendment:
-        items.append({
-            "amendment_name": mod.Leg_Name,
-            "amendment_year": _fmt(mod.Year),
-            "instruction_articles": [
-                {
-                    "number": a.article_number,
-                    "title": a.title,
-                    "text": _truncate(a.text, per_article_budget),
-                }
-                for a in mod.Base_Articles
-            ],
-            "reflected_articles": [
-                {
-                    "number": a.article_number,
-                    "title": a.title,
-                    "text": _truncate(a.text, per_article_budget),
-                }
-                for a in matching_reflected
-            ],
-        })
+        if items and running_size + entry_size > _MAX_REFLECT_CELL_CHARS:
+            omitted = len(mods) - i
+            items.append({
+                "amendment_name": f"⚠️ تم حذف {omitted} تعديل إضافي من هذا العرض بسبب حجم البيانات",
+                "amendment_year": "",
+                "instruction_articles": [],
+                "reflected_articles": [],
+            })
+            logger.warning(f"{leg.record_id}: omitted {omitted} amendment(s) from reflect_data due to cell size")
+            break
+
+        items.append(entry)
+        running_size += entry_size
 
     actual_size = len(_json.dumps(items, ensure_ascii=False))
     if actual_size > _MAX_REFLECT_CELL_CHARS:
         logger.warning(
-            f"{leg.record_id}: reflect_data still {actual_size} chars after truncation "
-            f"(budget calc may need revisiting for this record)"
+            f"{leg.record_id}: reflect_data still {actual_size} chars even with the omission "
+            f"guard - a single amendment's touched articles alone exceed the cell limit"
         )
 
     return items
