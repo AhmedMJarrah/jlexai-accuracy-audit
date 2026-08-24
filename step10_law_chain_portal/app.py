@@ -20,6 +20,7 @@ from step4_sheets.client import open_spreadsheet
 from step6_auth.authenticate import authenticate
 from step7_updates.row_update import update_row
 from step10_law_chain_portal.style import apply_chain_style
+from shared_portal_lib.style import render_login_header
 from shared_portal_lib.assignments import list_assigned, progress_summary
 from shared_portal_lib.export import to_csv_bytes
 
@@ -43,10 +44,7 @@ def get_cached_spreadsheet():
 
 
 def login_screen(settings) -> None:
-    st.markdown(
-        "<h1 style='text-align:center;'>تدقيق سلاسل التعديلات</h1>",
-        unsafe_allow_html=True,
-    )
+    render_login_header("تدقيق سلاسل التعديلات", icon="🔗")
     with st.form("login_form"):
         username = st.text_input("اسم المستخدم")
         password = st.text_input("كلمة المرور", type="password")
@@ -163,19 +161,13 @@ def review_form(spreadsheet, record: dict) -> bool:
         format_func=lambda v: CHAIN_LABELS[v],
         horizontal=True,
     )
-    status = st.selectbox(
-        "حالة المراجعة",
-        STATUS_OPTIONS,
-        index=STATUS_OPTIONS.index(record.get("status") or "not_started"),
-        format_func=lambda s: STATUS_LABELS[s],
-    )
-
     if st.button("حفظ", type="primary"):
-        field_updates = {}
-        if chain_correct is not None:
-            field_updates["chain_correct"] = chain_correct
+        if chain_correct is None:
+            st.warning("الرجاء تحديد ما إذا كانت السلسلة صحيحة قبل الحفظ.")
+            return False
+        status = "flagged" if chain_correct == "incorrect" else "done"
         try:
-            update_row(spreadsheet, POOL, record["record_id"], field_updates, status=status)
+            update_row(spreadsheet, POOL, record["record_id"], {"chain_correct": chain_correct}, status=status)
         except Exception as e:
             st.error("حدث خطأ أثناء الحفظ. حاول مرة أخرى.")
             st.exception(e)

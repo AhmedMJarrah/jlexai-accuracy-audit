@@ -19,7 +19,7 @@ from step6_auth.authenticate import authenticate
 from step7_updates.row_update import update_row
 from shared_portal_lib.assignments import list_assigned, progress_summary
 from shared_portal_lib.export import to_csv_bytes
-from shared_portal_lib.style import apply_rtl_style
+from shared_portal_lib.style import apply_rtl_style, render_login_header
 
 POOL = PoolName.LAW_META
 STATUS_OPTIONS = ["not_started", "in_progress", "done", "flagged"]
@@ -53,10 +53,7 @@ def get_cached_spreadsheet():
 
 
 def login_screen(settings) -> None:
-    st.markdown(
-        "<h1 style='text-align:center;'>تدقيق البيانات الوصفية للتشريعات</h1>",
-        unsafe_allow_html=True,
-    )
+    render_login_header("تدقيق البيانات الوصفية للتشريعات", icon="📋")
     with st.form("login_form"):
         username = st.text_input("اسم المستخدم")
         password = st.text_input("كلمة المرور", type="password")
@@ -132,15 +129,11 @@ def review_form(spreadsheet, record: dict) -> bool:
             "corr", value=existing_corr, key=f"corr_{field}", label_visibility="collapsed"
         )
 
-    status = st.selectbox(
-        "حالة المراجعة",
-        STATUS_OPTIONS,
-        index=STATUS_OPTIONS.index(record.get("status") or "not_started"),
-        format_func=lambda s: STATUS_LABELS[s],
-    )
     notes = st.text_area("ملاحظات", value=record.get("reviewer_notes", ""))
 
     if st.button("حفظ", type="primary"):
+        has_correction = any(v.strip() for v in corrections.values())
+        status = "flagged" if has_correction else "done"
         try:
             update_row(spreadsheet, POOL, record["record_id"], corrections, status=status, notes=notes)
         except Exception as e:

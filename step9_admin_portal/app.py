@@ -24,7 +24,7 @@ from step6_auth.users_config import load_users
 from step9_admin_portal.progress import all_pools_progress
 from step9_admin_portal.reassign import reassign_not_started
 from step9_admin_portal.users_admin import update_volunteer
-from shared_portal_lib.style import apply_rtl_style
+from shared_portal_lib.style import apply_rtl_style, render_login_header
 
 
 @st.cache_resource
@@ -35,7 +35,7 @@ def get_cached_spreadsheets():
 
 
 def login_screen(settings) -> None:
-    st.markdown("<h1 style='text-align:center;'>لوحة تحكم المشرف</h1>", unsafe_allow_html=True)
+    render_login_header("لوحة تحكم المشرف", icon="🛠️")
     with st.form("admin_login_form"):
         username = st.text_input("اسم المستخدم")
         password = st.text_input("كلمة المرور", type="password")

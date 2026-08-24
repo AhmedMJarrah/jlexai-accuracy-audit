@@ -24,6 +24,7 @@ from step7_updates.row_update import update_row
 from shared_portal_lib.assignments import list_assigned, progress_summary
 from shared_portal_lib.export import to_csv_bytes
 from step11_law_reflect_portal.style import apply_reflect_style
+from shared_portal_lib.style import render_login_header
 
 POOL = PoolName.LAW_REFLECT
 STATUS_OPTIONS = ["not_started", "in_progress", "done", "flagged"]
@@ -47,10 +48,7 @@ def get_cached_spreadsheet():
 
 
 def login_screen(settings) -> None:
-    st.markdown(
-        "<h1 style='text-align:center;'>تدقيق انعكاس التعديلات</h1>",
-        unsafe_allow_html=True,
-    )
+    render_login_header("تدقيق انعكاس التعديلات", icon="🔄")
     with st.form("login_form"):
         username = st.text_input("اسم المستخدم")
         password = st.text_input("كلمة المرور", type="password")
@@ -180,19 +178,13 @@ def review_form(spreadsheet, record: dict) -> bool:
         format_func=lambda v: REFLECT_LABELS[v],
         horizontal=True,
     )
-    status = st.selectbox(
-        "حالة المراجعة",
-        STATUS_OPTIONS,
-        index=STATUS_OPTIONS.index(record.get("status") or "not_started"),
-        format_func=lambda s: STATUS_LABELS[s],
-    )
-
     if st.button("حفظ", type="primary"):
-        field_updates = {}
-        if reflection_correct is not None:
-            field_updates["reflection_correct"] = reflection_correct
+        if reflection_correct is None:
+            st.warning("الرجاء تحديد ما إذا كان الانعكاس صحيحاً قبل الحفظ.")
+            return False
+        status = "flagged" if reflection_correct == "incorrect" else "done"
         try:
-            update_row(spreadsheet, POOL, record["record_id"], field_updates, status=status)
+            update_row(spreadsheet, POOL, record["record_id"], {"reflection_correct": reflection_correct}, status=status)
         except Exception as e:
             st.error("حدث خطأ أثناء الحفظ. حاول مرة أخرى.")
             st.exception(e)
