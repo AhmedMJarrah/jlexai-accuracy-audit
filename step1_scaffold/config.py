@@ -43,10 +43,13 @@ class Settings(BaseSettings):
     num_users: int = 5
     random_seed: int = 42
 
-    # Google Sheets (Step 4)
+    # Google Sheets (Step 4). Two spreadsheets: the main one (meta,
+    # chain, future bylaw pools) and a dedicated one for reflect,
+    # requested to keep the main sheet lighter.
     google_service_account_file: Path = Path("./secrets/service_account.json")
     google_service_account_json: str = ""  # cloud deployment: raw JSON string via secrets, takes priority over the file
     google_spreadsheet_id: str = ""
+    google_reflect_spreadsheet_id: str = ""
 
     # Auth (Step 6)
     auth_shared_password_hash: str = ""

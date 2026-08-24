@@ -56,13 +56,36 @@ def extract_chain_data(leg: Legislation) -> list[dict[str, str]]:
     return chain
 
 
+def _flatten_articles(articles) -> str:
+    if not articles:
+        return ""
+    return " | ".join(f"{a.title}: {a.text}" for a in articles)
+
+
+def extract_reflect_data(leg: Legislation) -> list[dict[str, str]]:
+    """Frozen snapshot of each amendment's instruction text alongside
+    the resulting consolidated article text - one entry per Mod_Leg.
+    Phase 1 judgment is per-amendment, not per-article, to keep the
+    review workload manageable."""
+    items = []
+    for mod in leg.Mod_Legs:
+        items.append({
+            "amendment_name": mod.Leg_Name,
+            "amendment_year": _fmt(mod.Year),
+            "instruction_text": _flatten_articles(mod.Base_Articles),
+            "reflected_text": _flatten_articles(mod.Reflected_Articles),
+        })
+    return items
+
+
 def build_population(records: list[Legislation], pool: PoolName) -> list[Legislation]:
-    """meta/chain: every record of that leg_kind is eligible, including
-    unamended ones - confirming an empty chain is correctly empty is
-    itself a valid finding. reflect: only records that actually have
-    amendments, since there is nothing to reflect-check otherwise."""
+    """meta: every record of that leg_kind is eligible, including
+    unamended ones - confirming an empty metadata set is itself
+    checkable. chain/reflect: only records that actually have
+    amendments, since there is nothing to check otherwise - an
+    unamended law wastes a chain-review slot on a trivial confirm."""
     same_kind = [r for r in records if r.leg_type is not None and r.leg_type.value == pool.leg_kind.value]
-    if pool.audit_kind == AuditKind.REFLECT:
+    if pool.audit_kind in (AuditKind.CHAIN, AuditKind.REFLECT):
         return [r for r in same_kind if r.has_amendments]
     return same_kind
 
@@ -75,6 +98,7 @@ def to_sampled_record(leg: Legislation, pool: PoolName) -> SampledRecord:
         content_hash=leg.content_hash,
         meta_fields=extract_meta_fields(leg) if pool.audit_kind == AuditKind.META else {},
         chain_data=extract_chain_data(leg) if pool.audit_kind == AuditKind.CHAIN else [],
+        reflect_data=extract_reflect_data(leg) if pool.audit_kind == AuditKind.REFLECT else [],
     )
 
 

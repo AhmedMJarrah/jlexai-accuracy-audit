@@ -1,12 +1,14 @@
 """
-Aggregates progress across every pool tab currently synced in the
-spreadsheet - per-pool status counts and a per-user breakdown within
-each pool. Read-only. Pools that don't have a tab yet (not synced,
-or bylaws not ready) report total=0 rather than erroring.
+Aggregates progress across every pool tab currently synced, across
+BOTH spreadsheets (main and reflect) - per-pool status counts and a
+per-user breakdown. Read-only. A pool with no tab yet, or whose
+spreadsheet isn't configured yet (e.g. reflect before its secret is
+set), reports total=0 rather than erroring the whole page.
 """
 import gspread
 
 from step3_sampling.models import PoolName
+from step4_sheets.client import spreadsheet_for_pool
 from step4_sheets.schema import headers_for
 
 
@@ -46,5 +48,12 @@ def pool_progress(spreadsheet: gspread.Spreadsheet, pool: PoolName) -> dict:
     }
 
 
-def all_pools_progress(spreadsheet: gspread.Spreadsheet) -> list[dict]:
-    return [pool_progress(spreadsheet, pool) for pool in PoolName]
+def all_pools_progress(spreadsheets: dict) -> list[dict]:
+    results = []
+    for pool in PoolName:
+        try:
+            spreadsheet = spreadsheet_for_pool(pool, spreadsheets)
+            results.append(pool_progress(spreadsheet, pool))
+        except ValueError:
+            results.append({"pool": pool.value, "total": 0, "status_counts": {}, "per_user": {}})
+    return results

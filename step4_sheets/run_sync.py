@@ -1,7 +1,8 @@
 """
 CLI entry point: loads a saved sampling round snapshot and pushes it
-into the Google Sheet. Defaults to the most recently created snapshot
-if --round-file is omitted. --pool (repeatable) scopes the push to
+into the Google Sheet(s) - main and reflect, resolved automatically
+per pool. Defaults to the most recently created snapshot if
+--round-file is omitted. --pool (repeatable) scopes the push to
 specific pool(s) - default is every pool in the round.
 """
 import argparse
@@ -10,7 +11,7 @@ from pathlib import Path
 from step1_scaffold.config import get_settings
 from step1_scaffold.logging_setup import setup_logging, get_logger
 from step3_sampling.snapshot import load_round
-from step4_sheets.client import open_spreadsheet
+from step4_sheets.client import open_spreadsheets_for_settings
 from step4_sheets.sync import push_round
 
 logger = get_logger("run_sync")
@@ -31,10 +32,10 @@ def run(round_file: str | None, force: bool, pools: list[str] | None) -> None:
     logger.info(f"Loading round from {path}")
     round_ = load_round(path)
 
-    spreadsheet = open_spreadsheet(settings)
+    spreadsheets = open_spreadsheets_for_settings(settings)
     only_pools = set(pools) if pools else None
-    push_round(spreadsheet, round_, force=force, only_pools=only_pools)
-    print(f"\nSynced round '{round_.round_id}' to spreadsheet '{spreadsheet.title}'.")
+    push_round(spreadsheets, round_, force=force, only_pools=only_pools)
+    print(f"\nSynced round '{round_.round_id}'.")
 
 
 if __name__ == "__main__":

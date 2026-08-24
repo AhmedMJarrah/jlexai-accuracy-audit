@@ -63,19 +63,23 @@ class SampledRecord(BaseModel):
     into the snapshot.
 
     meta_fields: frozen Phase 1 metadata values, populated only for
-    META pools - the value shown to volunteers is always "as
-    sampled", even if the source file changes later.
+    META pools.
 
     chain_data: frozen amendment sequence, populated only for CHAIN
-    pools - a list of {kind, leg_name, leg_number, year, status}
-    dicts, element 0 always the base law itself (kind="base"),
-    followed by each Mod_Leg in order (kind="amendment")."""
+    pools - element 0 is always the base law (kind="base"), followed
+    by each Mod_Leg in order (kind="amendment").
+
+    reflect_data: frozen per-amendment instruction + resulting text,
+    populated only for REFLECT pools - one entry per Mod_Leg, each
+    carrying the amendment's own instruction text and the
+    consolidated text that resulted from applying it."""
     record_id: str
     pmk_id: Optional[int] = None
     leg_name: str
     content_hash: str
     meta_fields: dict[str, str] = Field(default_factory=dict)
     chain_data: list[dict[str, str]] = Field(default_factory=list)
+    reflect_data: list[dict[str, str]] = Field(default_factory=list)
 
 
 class PoolSample(BaseModel):

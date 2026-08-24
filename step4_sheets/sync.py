@@ -1,13 +1,15 @@
 """
-Pushes data into the spreadsheet. Two entry points:
+Pushes data into spreadsheets. Two entry points:
 
 - push_round: initial 100-sample - clears and rewrites a tab's full
-  body. Idempotent by default (refuses to touch a tab that already
-  has data, unless force=True). only_pools optionally scopes a push
-  to specific pool(s), so a schema change in one pool doesn't force
-  rewriting tabs that didn't change.
+  body. Idempotent by default. Takes a `spreadsheets` dict (from
+  open_spreadsheets_for_settings) since a single round spans pools
+  that live in different spreadsheets (main vs reflect) - resolves
+  per pool internally as it loops.
 - append_batch: full-population release batches - appends rows to
-  an EXISTING tab without touching what's already there.
+  an EXISTING tab. Takes a single already-resolved spreadsheet,
+  since a batch is always for exactly one pool - the caller resolves
+  which spreadsheet via spreadsheet_for_pool() before calling.
 
 Both tabs get rightToLeft set, since record data (names, notes) is
 Arabic even though headers are English identifiers.
@@ -16,6 +18,7 @@ import gspread
 
 from step1_scaffold.logging_setup import get_logger
 from step3_sampling.models import PoolName, SamplingRound
+from step4_sheets.client import spreadsheet_for_pool
 from step4_sheets.schema import headers_for, row_values
 from step5_release.models import ReleaseBatch
 
@@ -42,16 +45,22 @@ def _ensure_tab(spreadsheet: gspread.Spreadsheet, pool: PoolName, rows_needed: i
 
 def _existing_data_row_count(ws: gspread.Worksheet) -> int:
     values = ws.get_all_values()
-    return max(0, len(values) - 1)  # minus header row, if any
+    return max(0, len(values) - 1)
 
 
-def push_round(spreadsheet: gspread.Spreadsheet, round_: SamplingRound, force: bool = False,
+def push_round(spreadsheets: dict, round_: SamplingRound, force: bool = False,
                 only_pools: set[str] | None = None) -> None:
     for pool_key, pool_sample in round_.pools.items():
         if only_pools is not None and pool_key not in only_pools:
             continue
 
         pool = PoolName(pool_key)
+        try:
+            spreadsheet = spreadsheet_for_pool(pool, spreadsheets)
+        except ValueError as e:
+            logger.warning(f"{pool.value}: skipping push - {e}")
+            continue
+
         headers = headers_for(pool)
         ws = _ensure_tab(spreadsheet, pool, len(pool_sample.records))
 

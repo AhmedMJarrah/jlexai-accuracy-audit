@@ -16,7 +16,7 @@ from step1_scaffold.logging_setup import setup_logging
 from step2_ingestion.adapters import get_adapter
 from step2_ingestion.models import LegType
 from step3_sampling.models import LegKind, PoolName
-from step4_sheets.client import open_spreadsheet
+from step4_sheets.client import open_spreadsheets_for_settings, spreadsheet_for_pool
 from step4_sheets.sync import append_batch
 from step5_release.service import create_batch
 from step6_auth.authenticate import authenticate
@@ -28,10 +28,10 @@ from shared_portal_lib.style import apply_rtl_style
 
 
 @st.cache_resource
-def get_cached_spreadsheet():
+def get_cached_spreadsheets():
     settings = get_settings()
     setup_logging(settings.log_dir, settings.log_level)
-    return open_spreadsheet(settings)
+    return open_spreadsheets_for_settings(settings)
 
 
 def login_screen(settings) -> None:
@@ -59,9 +59,9 @@ def login_screen(settings) -> None:
         st.rerun()
 
 
-def progress_tab(spreadsheet) -> None:
+def progress_tab(spreadsheets) -> None:
     st.subheader("نظرة عامة على التقدم")
-    reports = all_pools_progress(spreadsheet)
+    reports = all_pools_progress(spreadsheets)
 
     for r in reports:
         if r["total"] == 0:
@@ -83,7 +83,7 @@ def progress_tab(spreadsheet) -> None:
                 )
 
 
-def reassign_tab(spreadsheet, settings) -> None:
+def reassign_tab(spreadsheets, settings) -> None:
     st.subheader("إعادة توزيع العمل")
     st.caption("يتم نقل السجلات التي لم تبدأ بعد فقط - العمل الجاري أو المنتهي لا يُنقل.")
 
@@ -95,6 +95,7 @@ def reassign_tab(spreadsheet, settings) -> None:
 
     if st.button("نقل السجلات"):
         try:
+            spreadsheet = spreadsheet_for_pool(PoolName(pool), spreadsheets)
             moved = reassign_not_started(spreadsheet, PoolName(pool), from_slot, to_slot, int(count))
         except Exception as e:
             st.error("حدث خطأ أثناء إعادة التوزيع - قد يكون هذا الجدول غير متاح بعد.")
@@ -107,7 +108,7 @@ def reassign_tab(spreadsheet, settings) -> None:
             st.warning(f"لا توجد سجلات لم تبدأ بعد لدى {from_slot} في هذا الجدول")
 
 
-def release_tab(spreadsheet, settings) -> None:
+def release_tab(spreadsheets, settings) -> None:
     st.subheader("توزيع باقي البيانات")
     st.caption(
         "بعد اكتمال عينة الـ100 الأولى، استخدم هذا القسم لإطلاق دفعات إضافية. "
@@ -129,6 +130,7 @@ def release_tab(spreadsheet, settings) -> None:
 
     if st.button("إطلاق الدفعة"):
         try:
+            spreadsheet = spreadsheet_for_pool(PoolName(pool), spreadsheets)
             records = get_adapter(LegType.LAW).load_from_text(uploaded.getvalue().decode("utf-8"))
             batch = create_batch(PoolName(pool), user_slot, int(count), records, spreadsheet, settings, note)
         except Exception as e:
@@ -186,15 +188,15 @@ def main() -> None:
         del st.session_state["admin"]
         st.rerun()
 
-    spreadsheet = get_cached_spreadsheet()
+    spreadsheets = get_cached_spreadsheets()
 
     tab1, tab2, tab3, tab4 = st.tabs(["التقدم", "إعادة التوزيع", "توزيع باقي البيانات", "المتطوعون"])
     with tab1:
-        progress_tab(spreadsheet)
+        progress_tab(spreadsheets)
     with tab2:
-        reassign_tab(spreadsheet, settings)
+        reassign_tab(spreadsheets, settings)
     with tab3:
-        release_tab(spreadsheet, settings)
+        release_tab(spreadsheets, settings)
     with tab4:
         volunteers_tab(settings)
 

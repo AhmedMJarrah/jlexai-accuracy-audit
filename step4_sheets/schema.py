@@ -4,21 +4,28 @@ Column layout per pool tab. Core columns apply to every pool.
 META pools get a frozen reference + editable correction column pair
 per Phase 1 metadata field.
 
-CHAIN pools get a frozen chain_data_json snapshot (system - never
-volunteer-writable) plus a single chain_correct verdict column
-(writable). Notes reuse the shared reviewer_notes core column.
+CHAIN pools get a frozen chain_data_json snapshot (system) plus a
+single chain_correct verdict column (writable).
 
-REFLECT stays a single-column placeholder until its rubric is
-defined.
+REFLECT pools get a frozen mod_legs_json snapshot (system - each
+amendment's instruction text + resulting consolidated text) plus a
+single reflection_correct verdict column (writable). Judgment is
+per-law (covering the whole amendment sequence), not per individual
+amendment, to keep review workload manageable - notes cover where
+any problem was found.
 
-release_id holds either a SamplingRound.round_id (initial 100-sample
-rows) or a ReleaseBatch.batch_id (full-population rows added later).
+Notes reuse the shared reviewer_notes core column everywhere.
+
+release_id holds either a SamplingRound.round_id or a
+ReleaseBatch.batch_id - either way, an immutable identifier for
+where that row's assignment came from.
 
 writable_headers() is driven by an explicit per-audit-kind writable
-set, not "everything in TYPE_SPECIFIC_HEADERS" - chain's mix of one
-system column and one writable column is exactly why that assumption
-would have been wrong.
+set, never "everything in TYPE_SPECIFIC_HEADERS" - both chain and
+reflect mix one system column with one writable column.
 """
+import json
+
 from step3_sampling.models import META_FIELDS, AuditKind, PoolName, SampledRecord
 
 CORE_HEADERS = [
@@ -45,17 +52,18 @@ def _meta_headers() -> list[str]:
 
 
 CHAIN_HEADERS = ["chain_data_json", "chain_correct"]
+REFLECT_HEADERS = ["mod_legs_json", "reflection_correct"]
 
 TYPE_SPECIFIC_HEADERS: dict[AuditKind, list[str]] = {
     AuditKind.META: _meta_headers(),
     AuditKind.CHAIN: CHAIN_HEADERS,
-    AuditKind.REFLECT: ["reflection_correct"],  # placeholder - finalize next
+    AuditKind.REFLECT: REFLECT_HEADERS,
 }
 
 TYPE_SPECIFIC_WRITABLE: dict[AuditKind, set[str]] = {
     AuditKind.META: {h for h in _meta_headers() if h.startswith("corr_")},
     AuditKind.CHAIN: {"chain_correct"},
-    AuditKind.REFLECT: {"reflection_correct"},  # placeholder - finalize next
+    AuditKind.REFLECT: {"reflection_correct"},
 }
 
 
@@ -68,7 +76,7 @@ def writable_headers(pool: PoolName) -> set[str]:
     Excludes system-managed columns (record_id, pmk_id, leg_name,
     assigned_user, release_id, content_hash) and, per pool, whatever
     is frozen/system rather than volunteer-facing (ref_* for meta,
-    chain_data_json for chain)."""
+    chain_data_json for chain, mod_legs_json for reflect)."""
     return {"status", "reviewer_notes"} | TYPE_SPECIFIC_WRITABLE[pool.audit_kind]
 
 
@@ -81,8 +89,11 @@ def _meta_value_cells(rec: SampledRecord) -> list[str]:
 
 
 def _chain_value_cells(rec: SampledRecord) -> list[str]:
-    import json
-    return [json.dumps(rec.chain_data, ensure_ascii=False), ""]  # chain_data_json, chain_correct (blank)
+    return [json.dumps(rec.chain_data, ensure_ascii=False), ""]
+
+
+def _reflect_value_cells(rec: SampledRecord) -> list[str]:
+    return [json.dumps(rec.reflect_data, ensure_ascii=False), ""]
 
 
 def row_values(pool: PoolName, rec: SampledRecord, assigned_user: str, release_id: str,
@@ -102,6 +113,6 @@ def row_values(pool: PoolName, rec: SampledRecord, assigned_user: str, release_i
         row += _meta_value_cells(rec)
     elif pool.audit_kind == AuditKind.CHAIN:
         row += _chain_value_cells(rec)
-    else:
-        row += [""] * len(TYPE_SPECIFIC_HEADERS[pool.audit_kind])
+    elif pool.audit_kind == AuditKind.REFLECT:
+        row += _reflect_value_cells(rec)
     return row
