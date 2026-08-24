@@ -5,6 +5,7 @@ copies of each other, while the whole round stays reproducible from
 one configured random_seed.
 """
 import hashlib
+import json as _json
 import random
 
 from step1_scaffold.logging_setup import get_logger
@@ -15,7 +16,7 @@ logger = get_logger("sampler")
 
 # Google Sheets hard-caps a single cell at 50,000 characters. Stay
 # safely under that with margin for JSON structural overhead.
-_MAX_REFLECT_CELL_CHARS = 42_000  # extra margin below Sheets' 50,000 hard limit
+_MAX_REFLECT_CELL_CHARS = 42_000
 
 
 def _pool_seed(base_seed: int, pool: PoolName) -> int:
@@ -60,12 +61,6 @@ def extract_chain_data(leg: Legislation) -> list[dict[str, str]]:
     return chain
 
 
-def _flatten_articles(articles) -> str:
-    if not articles:
-        return ""
-    return " | ".join(f"{a.title}: {a.text}" for a in articles)
-
-
 def _truncate(text: str, max_len: int) -> str:
     """The marker itself takes up space - the returned string
     (content + marker together) must never exceed max_len, or the
@@ -78,37 +73,46 @@ def _truncate(text: str, max_len: int) -> str:
     return text[:content_budget] + marker
 
 
-def extract_reflect_data(leg: Legislation) -> list[dict[str, str]]:
-    """Frozen snapshot of each amendment's instruction text alongside
-    the resulting consolidated article text - one entry per Mod_Leg.
-
-    Text is truncated per-field to keep the whole structure inside a
-    single Sheets cell's 50,000-character limit. The truncation
-    budget is split across however many amendments this law has, so
-    a law with few amendments keeps close to full text, while a
-    heavily-amended law gets a smaller (but always clearly marked)
-    slice per amendment - never a silent cut."""
+def extract_reflect_data(leg: Legislation) -> list[dict]:
+    """Frozen snapshot of each amendment's instruction articles
+    alongside the resulting consolidated articles - kept structured
+    per-article (not flattened into one blob), so the portal can
+    render each article as its own readable card instead of a wall
+    of text. Text is truncated per-article, with the budget split
+    across however many articles this law's amendments carry in
+    total, to stay within a single Sheets cell."""
     mods = leg.Mod_Legs
     if not mods:
         return []
 
-    overhead_estimate = 200  # per amendment entry - keys, quotes, commas
-    usable = _MAX_REFLECT_CELL_CHARS - (len(mods) * overhead_estimate)
-    per_field_budget = max(300, usable // (len(mods) * 2))
+    total_articles = sum(len(m.Base_Articles) + len(m.Reflected_Articles) for m in mods) or 1
+    overhead_estimate = 120  # per article entry - keys, quotes, commas
+    usable = _MAX_REFLECT_CELL_CHARS - (total_articles * overhead_estimate) - (len(mods) * 80)
+    per_article_budget = max(400, usable // total_articles)
 
     items = []
     for mod in mods:
         items.append({
             "amendment_name": mod.Leg_Name,
             "amendment_year": _fmt(mod.Year),
-            "instruction_text": _truncate(_flatten_articles(mod.Base_Articles), per_field_budget),
-            "reflected_text": _truncate(_flatten_articles(mod.Reflected_Articles), per_field_budget),
+            "instruction_articles": [
+                {
+                    "number": a.article_number,
+                    "title": a.title,
+                    "text": _truncate(a.text, per_article_budget),
+                }
+                for a in mod.Base_Articles
+            ],
+            "reflected_articles": [
+                {
+                    "number": a.article_number,
+                    "title": a.title,
+                    "text": _truncate(a.text, per_article_budget),
+                }
+                for a in mod.Reflected_Articles
+            ],
         })
 
-    # Defensive final check - the math above should always land under
-    # the cap, but log loudly if a law's structure somehow defeats it,
-    # rather than silently pushing an oversized cell to the sheet.
-    import json as _json
     actual_size = len(_json.dumps(items, ensure_ascii=False))
     if actual_size > _MAX_REFLECT_CELL_CHARS:
         logger.warning(

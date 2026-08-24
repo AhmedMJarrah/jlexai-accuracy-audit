@@ -23,7 +23,7 @@ from step6_auth.authenticate import authenticate
 from step7_updates.row_update import update_row
 from shared_portal_lib.assignments import list_assigned, progress_summary
 from shared_portal_lib.export import to_csv_bytes
-from shared_portal_lib.style import apply_rtl_style
+from step11_law_reflect_portal.style import apply_reflect_style
 
 POOL = PoolName.LAW_REFLECT
 STATUS_OPTIONS = ["not_started", "in_progress", "done", "flagged"]
@@ -95,18 +95,53 @@ def record_picker(assigned: list[dict]) -> dict | None:
     return options[choice]
 
 
+def _article_card_html(article: dict, css_class: str) -> str:
+    number = article.get("number") or ""
+    title = article.get("title") or ""
+    text = article.get("text") or "—"
+    badge = f'<span class="article-number">{number}</span>' if number else ""
+    title_html = f'<div class="article-title">{title}</div>' if title else ""
+    return f'<div class="article-card {css_class}">{badge}{title_html}<div class="article-text">{text}</div></div>'
+
+
+def _render_zone(title_text: str, articles: list[dict], zone_class: str, card_class: str) -> str:
+    if not articles:
+        cards_html = '<div class="empty-note">لا يوجد نص لهذا القسم.</div>'
+    else:
+        cards_html = "".join(_article_card_html(a, card_class) for a in articles)
+    return (
+        f'<div class="reflect-zone {zone_class}">'
+        f'<div class="reflect-section-title">{title_text}</div>'
+        f'{cards_html}</div>'
+    )
+
+
+def render_amendment(mod: dict) -> None:
+    instruction_html = _render_zone(
+        "📝 نص التعليمة (التعديل)",
+        mod.get("instruction_articles") or [],
+        "zone-instruction",
+        "article-instruction",
+    )
+    reflected_html = _render_zone(
+        "✅ النص بعد التطبيق (الانعكاس)",
+        mod.get("reflected_articles") or [],
+        "zone-reflected",
+        "article-reflected",
+    )
+    st.markdown(instruction_html, unsafe_allow_html=True)
+    st.markdown(reflected_html, unsafe_allow_html=True)
+
+
 def render_reflections(mod_legs: list[dict]) -> None:
     if not mod_legs:
         st.info("لا توجد تعديلات لعرضها.")
         return
 
     for i, item in enumerate(mod_legs, start=1):
-        title = f"تعديل {i}: {item.get('amendment_name', '')} ({item.get('amendment_year') or '—'})"
+        title = f"🗂️ تعديل {i}: {item.get('amendment_name', '')} ({item.get('amendment_year') or '—'})"
         with st.expander(title, expanded=(i == 1)):
-            st.markdown("**نص التعليمة (التعديل):**")
-            st.write(item.get("instruction_text") or "—")
-            st.markdown("**النص بعد التطبيق (الانعكاس):**")
-            st.write(item.get("reflected_text") or "—")
+            render_amendment(item)
 
 
 def review_form(spreadsheet, record: dict) -> None:
@@ -156,7 +191,7 @@ def review_form(spreadsheet, record: dict) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="تدقيق انعكاس التعديلات", layout="wide")
-    apply_rtl_style()
+    apply_reflect_style()
 
     settings = get_settings()
 

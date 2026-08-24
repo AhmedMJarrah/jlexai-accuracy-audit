@@ -69,17 +69,19 @@ class SampledRecord(BaseModel):
     pools - element 0 is always the base law (kind="base"), followed
     by each Mod_Leg in order (kind="amendment").
 
-    reflect_data: frozen per-amendment instruction + resulting text,
-    populated only for REFLECT pools - one entry per Mod_Leg, each
-    carrying the amendment's own instruction text and the
-    consolidated text that resulted from applying it."""
+    reflect_data: frozen per-amendment article structure, populated
+    only for REFLECT pools - one entry per Mod_Leg, each carrying
+    "instruction_articles" and "reflected_articles" as lists of
+    {number, title, text} - kept structured (not flattened into a
+    single string) so the portal can render each article as its own
+    readable card."""
     record_id: str
     pmk_id: Optional[int] = None
     leg_name: str
     content_hash: str
     meta_fields: dict[str, str] = Field(default_factory=dict)
     chain_data: list[dict[str, str]] = Field(default_factory=list)
-    reflect_data: list[dict[str, str]] = Field(default_factory=list)
+    reflect_data: list[dict] = Field(default_factory=list)
 
 
 class PoolSample(BaseModel):
