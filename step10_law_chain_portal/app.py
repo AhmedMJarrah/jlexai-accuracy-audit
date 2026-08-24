@@ -83,12 +83,21 @@ def record_picker(assigned: list[dict]) -> dict | None:
         st.info("لا توجد سجلات مُسندة إليك في هذا الجدول حالياً.")
         return None
 
-    options = {
-        f"{r['leg_name']} ({r['record_id']}) — {STATUS_LABELS.get(r['status'], r['status'])}": r
+    if "current_index" not in st.session_state or st.session_state["current_index"] >= len(assigned):
+        st.session_state["current_index"] = 0
+
+    labels = [
+        f"{r['leg_name']} ({r['record_id']}) — {STATUS_LABELS.get(r['status'], r['status'])}"
         for r in assigned
-    }
-    choice = st.selectbox("اختر سجلاً للمراجعة", list(options.keys()))
-    return options[choice]
+    ]
+    chosen_index = st.selectbox(
+        "اختر سجلاً للمراجعة",
+        options=list(range(len(assigned))),
+        index=st.session_state["current_index"],
+        format_func=lambda i: labels[i],
+    )
+    st.session_state["current_index"] = chosen_index
+    return assigned[chosen_index]
 
 
 def _status_pill(status: str) -> str:
@@ -134,7 +143,7 @@ def render_timeline(chain_data: list[dict]) -> None:
     st.markdown("".join(html), unsafe_allow_html=True)
 
 
-def review_form(spreadsheet, record: dict) -> None:
+def review_form(spreadsheet, record: dict) -> bool:
     st.subheader(record["leg_name"])
     st.caption(f"رقم السجل: {record['record_id']}")
 
@@ -154,10 +163,6 @@ def review_form(spreadsheet, record: dict) -> None:
         format_func=lambda v: CHAIN_LABELS[v],
         horizontal=True,
     )
-    notes = st.text_area(
-        "ملاحظات (اذكر مكان الخلل إن وجد)",
-        value=record.get("reviewer_notes", ""),
-    )
     status = st.selectbox(
         "حالة المراجعة",
         STATUS_OPTIONS,
@@ -170,13 +175,14 @@ def review_form(spreadsheet, record: dict) -> None:
         if chain_correct is not None:
             field_updates["chain_correct"] = chain_correct
         try:
-            update_row(spreadsheet, POOL, record["record_id"], field_updates, status=status, notes=notes)
+            update_row(spreadsheet, POOL, record["record_id"], field_updates, status=status)
         except Exception as e:
             st.error("حدث خطأ أثناء الحفظ. حاول مرة أخرى.")
             st.exception(e)
-            return
+            return False
         st.success("تم الحفظ بنجاح")
-        st.rerun()
+        return True
+    return False
 
 
 def main() -> None:
@@ -207,7 +213,11 @@ def main() -> None:
 
     record = record_picker(assigned)
     if record:
-        review_form(spreadsheet, record)
+        if review_form(spreadsheet, record):
+            idx = st.session_state.get("current_index", 0)
+            if idx + 1 < len(assigned):
+                st.session_state["current_index"] = idx + 1
+            st.rerun()
 
 
 if __name__ == "__main__":
