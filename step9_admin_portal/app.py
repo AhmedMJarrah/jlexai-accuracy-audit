@@ -59,6 +59,14 @@ def login_screen(settings) -> None:
         st.rerun()
 
 
+def _finished_fraction(counts: dict) -> tuple[int, float]:
+    """"Finished" = done + flagged - both mean the volunteer actually
+    completed their review, flagged just also notes a concern."""
+    total = counts.get("total", 0)
+    finished = counts.get("done", 0) + counts.get("flagged", 0)
+    return finished, (finished / total if total else 0.0)
+
+
 def progress_tab(spreadsheets) -> None:
     st.subheader("نظرة عامة على التقدم")
     reports = all_pools_progress(spreadsheets)
@@ -68,19 +76,22 @@ def progress_tab(spreadsheets) -> None:
             st.caption(f"{r['pool']}: لم تتم مزامنته بعد")
             continue
 
-        with st.expander(f"{r['pool']} — {r['total']} سجل"):
-            sc = r["status_counts"]
-            st.write(
+        sc = r["status_counts"]
+        sc["total"] = r["total"]
+        finished, fraction = _finished_fraction(sc)
+
+        st.write(f"**{r['pool']}** — {r['total']} سجل")
+        st.progress(fraction, text=f"{finished} من {r['total']} منتهي ({fraction:.0%})")
+
+        with st.expander("تفاصيل حسب المستخدم"):
+            st.caption(
                 f"لم يبدأ: {sc['not_started']} | قيد المراجعة: {sc['in_progress']} | "
                 f"منتهي: {sc['done']} | بحاجة لمراجعة إضافية: {sc['flagged']}"
             )
-            st.write("**حسب المستخدم:**")
             for user_slot, counts in sorted(r["per_user"].items()):
-                st.write(
-                    f"- {user_slot}: {counts['total']} إجمالي "
-                    f"(لم يبدأ: {counts['not_started']}, قيد المراجعة: {counts['in_progress']}, "
-                    f"منتهي: {counts['done']}, بحاجة لمراجعة إضافية: {counts['flagged']})"
-                )
+                user_finished, user_fraction = _finished_fraction(counts)
+                st.write(f"{user_slot} — {user_finished} من {counts['total']} ({user_fraction:.0%})")
+                st.progress(user_fraction)
 
 
 def reassign_tab(spreadsheets, settings) -> None:
