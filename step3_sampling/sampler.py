@@ -13,6 +13,10 @@ from step3_sampling.models import META_FIELDS, AuditKind, PoolName, SampledRecor
 
 logger = get_logger("sampler")
 
+# Google Sheets hard-caps a single cell at 50,000 characters. Stay
+# safely under that with margin for JSON structural overhead.
+_MAX_REFLECT_CELL_CHARS = 45_000
+
 
 def _pool_seed(base_seed: int, pool: PoolName) -> int:
     return base_seed + int(hashlib.sha256(pool.value.encode()).hexdigest(), 16) % 100_000
@@ -62,19 +66,51 @@ def _flatten_articles(articles) -> str:
     return " | ".join(f"{a.title}: {a.text}" for a in articles)
 
 
+def _truncate(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    original_len = len(text)
+    return text[:max_len] + f" …[تم اقتصاص النص، الطول الأصلي {original_len} حرف]"
+
+
 def extract_reflect_data(leg: Legislation) -> list[dict[str, str]]:
     """Frozen snapshot of each amendment's instruction text alongside
     the resulting consolidated article text - one entry per Mod_Leg.
-    Phase 1 judgment is per-amendment, not per-article, to keep the
-    review workload manageable."""
+
+    Text is truncated per-field to keep the whole structure inside a
+    single Sheets cell's 50,000-character limit. The truncation
+    budget is split across however many amendments this law has, so
+    a law with few amendments keeps close to full text, while a
+    heavily-amended law gets a smaller (but always clearly marked)
+    slice per amendment - never a silent cut."""
+    mods = leg.Mod_Legs
+    if not mods:
+        return []
+
+    overhead_estimate = 200  # per amendment entry - keys, quotes, commas
+    usable = _MAX_REFLECT_CELL_CHARS - (len(mods) * overhead_estimate)
+    per_field_budget = max(300, usable // (len(mods) * 2))
+
     items = []
-    for mod in leg.Mod_Legs:
+    for mod in mods:
         items.append({
             "amendment_name": mod.Leg_Name,
             "amendment_year": _fmt(mod.Year),
-            "instruction_text": _flatten_articles(mod.Base_Articles),
-            "reflected_text": _flatten_articles(mod.Reflected_Articles),
+            "instruction_text": _truncate(_flatten_articles(mod.Base_Articles), per_field_budget),
+            "reflected_text": _truncate(_flatten_articles(mod.Reflected_Articles), per_field_budget),
         })
+
+    # Defensive final check - the math above should always land under
+    # the cap, but log loudly if a law's structure somehow defeats it,
+    # rather than silently pushing an oversized cell to the sheet.
+    import json as _json
+    actual_size = len(_json.dumps(items, ensure_ascii=False))
+    if actual_size > _MAX_REFLECT_CELL_CHARS:
+        logger.warning(
+            f"{leg.record_id}: reflect_data still {actual_size} chars after truncation "
+            f"(budget calc may need revisiting for this record)"
+        )
+
     return items
 
 
