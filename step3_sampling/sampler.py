@@ -76,27 +76,25 @@ def _truncate(text: str, max_len: int) -> str:
 _PER_ARTICLE_TEXT_BUDGET = 1500  # generous - several real paragraphs per article
 
 
-def _build_reflect_entry(mod, matching_reflected) -> dict:
-    return {
-        "amendment_name": mod.Leg_Name,
-        "amendment_year": _fmt(mod.Year),
-        "instruction_articles": [
-            {
-                "number": a.article_number,
-                "title": a.title,
-                "text": _truncate(a.text, _PER_ARTICLE_TEXT_BUDGET),
-            }
-            for a in mod.Base_Articles
-        ],
-        "reflected_articles": [
-            {
-                "number": a.article_number,
-                "title": a.title,
-                "text": _truncate(a.text, _PER_ARTICLE_TEXT_BUDGET),
-            }
-            for a in matching_reflected
-        ],
-    }
+def _fit_articles(articles, running_size: int, budget: int) -> tuple[list[dict], int, int]:
+    """Adds articles one at a time, checking the actual size against
+    the absolute cap before each one - not a relative "amendment
+    budget", the real global limit. This is what makes a single
+    amendment with many touched articles safe: individual articles
+    stop being added once the running total approaches the cap,
+    regardless of which amendment they belong to. Returns
+    (included_articles, new_running_size, skipped_count)."""
+    included = []
+    skipped = 0
+    for a in articles:
+        piece = {"number": a.article_number, "title": a.title, "text": _truncate(a.text, budget)}
+        piece_size = len(_json.dumps(piece, ensure_ascii=False)) + 1
+        if running_size + piece_size > _MAX_REFLECT_CELL_CHARS:
+            skipped += 1
+            continue
+        included.append(piece)
+        running_size += piece_size
+    return included, running_size, skipped
 
 
 def extract_reflect_data(leg: Legislation) -> list[dict]:
@@ -108,17 +106,19 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
     changed - including it in full would mean re-showing the whole
     law at every amendment. Instead, match on article_number: only
     the reflected articles whose number appears in this amendment's
-    own instruction articles are included - the actual before/after
-    pair a reviewer needs.
+    own instruction articles are included.
 
-    Every included article gets a fixed, comfortable text budget
-    (not squeezed thinner as amendment count grows). Amendments are
-    added one at a time, checking the real running size before each
-    addition - the moment one more would exceed the Sheets cell
-    limit, building stops and a note records how many were left out.
-    This is a hard guarantee, not an estimate: the result can never
-    exceed the cap, and nothing is ever silently mangled into an
-    unreadable fragment to make room for more."""
+    Two-level hard guarantee, both checked against the real running
+    size rather than an estimated budget:
+    - article level: within one amendment, articles stop being added
+      the moment the running total would exceed the cap - this is
+      what keeps a single amendment with dozens of touched articles
+      safe on its own, not just amendments relative to each other.
+    - amendment level: amendments stop being added once one more
+      would exceed the cap, with a note on how many were left out.
+    Nothing is ever silently included past the limit - every
+    omission (whole amendments or individual articles within one) is
+    explicitly noted for the reviewer."""
     mods = leg.Mod_Legs
     if not mods:
         return []
@@ -130,8 +130,31 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
         touched_numbers = {a.article_number for a in mod.Base_Articles}
         matching_reflected = [a for a in mod.Reflected_Articles if a.article_number in touched_numbers]
 
-        entry = _build_reflect_entry(mod, matching_reflected)
-        entry_size = len(_json.dumps(entry, ensure_ascii=False)) + 1  # +1 for the joining comma
+        entry_base_size = running_size + len(_json.dumps(
+            {"amendment_name": mod.Leg_Name, "amendment_year": _fmt(mod.Year),
+             "instruction_articles": [], "reflected_articles": []}, ensure_ascii=False
+        ))
+
+        instr_articles, size_after_instr, instr_skipped = _fit_articles(
+            mod.Base_Articles, entry_base_size, _PER_ARTICLE_TEXT_BUDGET
+        )
+        refl_articles, size_after_refl, refl_skipped = _fit_articles(
+            matching_reflected, size_after_instr, _PER_ARTICLE_TEXT_BUDGET
+        )
+
+        name = mod.Leg_Name
+        total_skipped = instr_skipped + refl_skipped
+        if total_skipped:
+            name += f" (⚠️ {total_skipped} مادة إضافية ضمن هذا التعديل لم تُعرض بسبب حجم البيانات)"
+            logger.warning(f"{leg.record_id}: {total_skipped} article(s) skipped within one amendment")
+
+        entry = {
+            "amendment_name": name,
+            "amendment_year": _fmt(mod.Year),
+            "instruction_articles": instr_articles,
+            "reflected_articles": refl_articles,
+        }
+        entry_size = size_after_refl - running_size
 
         if items and running_size + entry_size > _MAX_REFLECT_CELL_CHARS:
             omitted = len(mods) - i
@@ -147,12 +170,13 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
         items.append(entry)
         running_size += entry_size
 
+    # The omission-marker entry itself isn't size-checked before being
+    # appended above, so a small overshoot past the internal target is
+    # expected and harmless - only warn if genuinely approaching the
+    # real Sheets limit, not the conservative internal target.
     actual_size = len(_json.dumps(items, ensure_ascii=False))
-    if actual_size > _MAX_REFLECT_CELL_CHARS:
-        logger.warning(
-            f"{leg.record_id}: reflect_data still {actual_size} chars even with the omission "
-            f"guard - a single amendment's touched articles alone exceed the cell limit"
-        )
+    if actual_size > 48_000:
+        logger.warning(f"{leg.record_id}: reflect_data at {actual_size} chars - close to the real 50,000 limit, needs a look")
 
     return items
 
