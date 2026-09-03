@@ -1,10 +1,11 @@
 """
 Volunteer portal for the law_reflect audit pool. Login -> pick an
-assigned amended law -> review each amendment's instruction text
-against the resulting consolidated text -> judge whether the whole
-amendment sequence was correctly reflected, with a note. Standalone
-app, touches only the law_reflect pool - and specifically the
-dedicated reflect spreadsheet, not the main one.
+assigned amended law -> for each amendment, compare the instruction
+text against the article text before and after it was applied,
+side by side -> judge whether the whole amendment sequence was
+correctly reflected, with a note. Standalone app, touches only the
+law_reflect pool - and specifically the dedicated reflect
+spreadsheet, not the main one.
 """
 import sys
 from pathlib import Path
@@ -111,9 +112,15 @@ def _article_card_html(article: dict, css_class: str) -> str:
     return f'<div class="article-card {css_class}">{badge}{title_html}<div class="article-text">{text}</div></div>'
 
 
-def _render_zone(title_text: str, articles: list[dict], zone_class: str, card_class: str) -> str:
+def _render_zone(
+    title_text: str,
+    articles: list[dict],
+    zone_class: str,
+    card_class: str,
+    empty_message: str = "لا يوجد نص لهذا القسم.",
+) -> str:
     if not articles:
-        cards_html = '<div class="empty-note">لا يوجد نص لهذا القسم.</div>'
+        cards_html = f'<div class="empty-note">{empty_message}</div>'
     else:
         cards_html = "".join(_article_card_html(a, card_class) for a in articles)
     return (
@@ -130,14 +137,28 @@ def render_amendment(mod: dict) -> None:
         "zone-instruction",
         "article-instruction",
     )
-    reflected_html = _render_zone(
-        "✅ النص بعد التطبيق (الانعكاس)",
-        mod.get("reflected_articles") or [],
-        "zone-reflected",
-        "article-reflected",
-    )
     st.markdown(instruction_html, unsafe_allow_html=True)
-    st.markdown(reflected_html, unsafe_allow_html=True)
+
+    # Before/after side by side so the reviewer can compare directly,
+    # without needing to scroll between two stacked sections.
+    col_before, col_after = st.columns(2)
+    with col_before:
+        before_html = _render_zone(
+            "⬅️ قبل التعديل",
+            mod.get("before_articles") or [],
+            "zone-before",
+            "article-before",
+            empty_message="مادة جديدة - لا يوجد نص سابق لها.",
+        )
+        st.markdown(before_html, unsafe_allow_html=True)
+    with col_after:
+        reflected_html = _render_zone(
+            "✅ بعد التعديل (الانعكاس)",
+            mod.get("reflected_articles") or [],
+            "zone-reflected",
+            "article-reflected",
+        )
+        st.markdown(reflected_html, unsafe_allow_html=True)
 
 
 def render_reflections(mod_legs: list[dict]) -> None:

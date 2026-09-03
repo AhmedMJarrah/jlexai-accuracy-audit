@@ -1,9 +1,10 @@
 """
 Article-level visual styling for the reflection portal, layered on
-top of the shared RTL style. The instruction text and the resulting
-reflected text each get their own tinted "zone", and every article
-inside is its own card - replacing what used to be one long
-undifferentiated wall of text with something scannable.
+top of the shared RTL style. The article's prior text, the
+instruction text, and the resulting reflected text each get their
+own tinted "zone", and every article inside is its own card -
+replacing what used to be one long undifferentiated wall of text
+with something scannable.
 """
 import streamlit as st
 
@@ -18,6 +19,7 @@ _REFLECT_CSS = """
 }
 .zone-instruction { background: #EAF2F6; }
 .zone-reflected { background: #EAF7F0; }
+.zone-before { background: #FBF2E9; }
 
 .reflect-section-title {
     font-size: 1.05rem;
@@ -35,6 +37,7 @@ _REFLECT_CSS = """
 }
 .article-instruction { border-right: 4px solid #3B6E8F; }
 .article-reflected { border-right: 4px solid #2E9E6B; }
+.article-before { border-right: 4px solid #C97B3D; }
 
 .article-number {
     display: inline-block;

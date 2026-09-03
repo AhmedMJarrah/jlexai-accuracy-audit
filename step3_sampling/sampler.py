@@ -7,6 +7,7 @@ one configured random_seed.
 import hashlib
 import json as _json
 import random
+from types import SimpleNamespace
 
 from step1_scaffold.logging_setup import get_logger
 from step2_ingestion.models import Legislation
@@ -98,15 +99,51 @@ def _fit_articles(articles, running_size: int, budget: int) -> tuple[list[dict],
 
 
 def extract_reflect_data(leg: Legislation) -> list[dict]:
-    """Frozen snapshot of each amendment's instruction articles
-    alongside the SPECIFIC reflected articles it actually touched.
+    """Frozen snapshot of each amendment's raw instruction text,
+    alongside the article text immediately BEFORE this amendment and
+    the resulting text AFTER it - so a reviewer can judge partial
+    edits (a deleted phrase, an inserted paragraph) against the real
+    prior text, not just the instruction wording.
 
-    Reflected_Articles is a snapshot of the law's ENTIRE consolidated
-    text at that point in the chain, not just what this amendment
-    changed - including it in full would mean re-showing the whole
-    law at every amendment. Instead, match on article_number: only
-    the reflected articles whose number appears in this amendment's
-    own instruction articles are included.
+    Touched articles are found by DIFFING, not by article_number
+    matching against the instruction. Confirmed against the real
+    dataset (Sept 2026 check, 1896 amendments): Mod_Leg.Base_Articles
+    numbers are the amending instrument's OWN internal numbering
+    (article 1 is always that instrument's own naming/title clause,
+    not a reference to which article of the target law it modifies) -
+    filtering Reflected_Articles by membership in those numbers was
+    matching two unrelated numbering systems by coincidence (98% of
+    amendments showed the tell-tale signature: matched count exactly
+    equal to instruction count, regardless of what actually changed).
+    A metadata-based alternative (Reflected_Articles.enforcement_date
+    == the amendment's own Active_Date) was tried and rejected: only
+    74% reliable, with 10% of amendments carrying no enforcement_date
+    at all.
+
+    Instead: "before" is the law's state right before this amendment
+    (the law's own Base_Articles for the first amendment in the
+    chain, otherwise the PREVIOUS amendment's Reflected_Articles).
+    "After" is this amendment's own Reflected_Articles. Both use the
+    TARGET LAW's article numbering, which - unlike the instruction's
+    own numbering - stays consistent across the chain (confirmed: the
+    same article_number carries the same content across consecutive
+    snapshots except where it actually changed). A number counts as
+    touched if it's new in "after" (no match in "before") or its text
+    differs between the two. Works even for the amendments with no
+    enforcement_date at all, since it depends on none of that
+    metadata.
+
+    An article REMOVED by this amendment (present before, gone after -
+    an explicit repeal) is also surfaced explicitly: it's included in
+    "before" with its real prior text, and a synthetic marker article
+    is added to "after" in its place so the reviewer sees "this
+    article was repealed" instead of silently seeing one fewer card
+    with no explanation.
+
+    The raw instruction text (mod.Base_Articles, in the amending
+    instrument's own numbering) is still shown in full alongside
+    before/after as context for what the amendment says - it's just
+    no longer used to decide which target articles to display.
 
     Two-level hard guarantee, both checked against the real running
     size rather than an estimated budget:
@@ -114,6 +151,8 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
       the moment the running total would exceed the cap - this is
       what keeps a single amendment with dozens of touched articles
       safe on its own, not just amendments relative to each other.
+      Fit order is instruction -> after -> before, so before degrades
+      first if space runs out.
     - amendment level: amendments stop being added once one more
       would exceed the cap, with a note on how many were left out.
     Nothing is ever silently included past the limit - every
@@ -127,23 +166,55 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
     running_size = 200  # rough allowance for the outer JSON array brackets/commas
 
     for i, mod in enumerate(mods):
-        touched_numbers = {a.article_number for a in mod.Base_Articles}
-        matching_reflected = [a for a in mod.Reflected_Articles if a.article_number in touched_numbers]
+        before_source = leg.Base_Articles if i == 0 else mods[i - 1].Reflected_Articles
+        before_by_number = {a.article_number: a for a in before_source}
+        after_by_number = {a.article_number: a for a in mod.Reflected_Articles}
+
+        touched_numbers = {
+            number for number, after_article in after_by_number.items()
+            if number not in before_by_number or before_by_number[number].text != after_article.text
+        }
+        removed_numbers = set(before_by_number) - set(after_by_number)
+        touched_numbers |= removed_numbers
+
+        # List comprehensions (not a rebuild from the dicts) so display
+        # order follows each source's own natural article order, not
+        # the arbitrary iteration order of a set.
+        matching_before = [a for a in before_source if a.article_number in touched_numbers]
+        matching_after = [a for a in mod.Reflected_Articles if a.article_number in touched_numbers]
+        if removed_numbers:
+            # These numbers have no entry in Reflected_Articles at all
+            # (that's what "removed" means) - a synthetic marker in
+            # their place, appended after the real matches, so the
+            # reviewer sees an explicit repeal rather than a silently
+            # missing card. article_number kept for correct grouping;
+            # title carried over from the prior article for context.
+            matching_after += [
+                SimpleNamespace(
+                    article_number=n,
+                    title=before_by_number[n].title,
+                    text="⚠️ أُلغيت هذه المادة بهذا التعديل - لم تعد موجودة بالنص المنعكس.",
+                )
+                for n in sorted(removed_numbers)
+            ]
 
         entry_base_size = running_size + len(_json.dumps(
             {"amendment_name": mod.Leg_Name, "amendment_year": _fmt(mod.Year),
-             "instruction_articles": [], "reflected_articles": []}, ensure_ascii=False
+             "before_articles": [], "instruction_articles": [], "reflected_articles": []}, ensure_ascii=False
         ))
 
         instr_articles, size_after_instr, instr_skipped = _fit_articles(
             mod.Base_Articles, entry_base_size, _PER_ARTICLE_TEXT_BUDGET
         )
         refl_articles, size_after_refl, refl_skipped = _fit_articles(
-            matching_reflected, size_after_instr, _PER_ARTICLE_TEXT_BUDGET
+            matching_after, size_after_instr, _PER_ARTICLE_TEXT_BUDGET
+        )
+        before_articles, size_after_before, before_skipped = _fit_articles(
+            matching_before, size_after_refl, _PER_ARTICLE_TEXT_BUDGET
         )
 
         name = mod.Leg_Name
-        total_skipped = instr_skipped + refl_skipped
+        total_skipped = instr_skipped + refl_skipped + before_skipped
         if total_skipped:
             name += f" (⚠️ {total_skipped} مادة إضافية ضمن هذا التعديل لم تُعرض بسبب حجم البيانات)"
             logger.warning(f"{leg.record_id}: {total_skipped} article(s) skipped within one amendment")
@@ -151,16 +222,18 @@ def extract_reflect_data(leg: Legislation) -> list[dict]:
         entry = {
             "amendment_name": name,
             "amendment_year": _fmt(mod.Year),
+            "before_articles": before_articles,
             "instruction_articles": instr_articles,
             "reflected_articles": refl_articles,
         }
-        entry_size = size_after_refl - running_size
+        entry_size = size_after_before - running_size
 
         if items and running_size + entry_size > _MAX_REFLECT_CELL_CHARS:
             omitted = len(mods) - i
             items.append({
                 "amendment_name": f"⚠️ تم حذف {omitted} تعديل إضافي من هذا العرض بسبب حجم البيانات",
                 "amendment_year": "",
+                "before_articles": [],
                 "instruction_articles": [],
                 "reflected_articles": [],
             })

@@ -8,7 +8,8 @@ CHAIN pools get a frozen chain_data_json snapshot (system) plus a
 single chain_correct verdict column (writable).
 
 REFLECT pools get a frozen mod_legs_json snapshot (system - each
-amendment's instruction text + resulting consolidated text) plus a
+amendment's instruction text, the article text as it stood right
+before that amendment, and the resulting consolidated text) plus a
 single reflection_correct verdict column (writable). Judgment is
 per-law (covering the whole amendment sequence), not per individual
 amendment, to keep review workload manageable - notes cover where
